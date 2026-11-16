@@ -3,7 +3,18 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from app.strategies.indicators import ema, ema_series, sessions_since_cross, sma, sma_series, wilder_rsi
+import pandas as pd
+
+from app.strategies.indicators import (
+    bollinger,
+    ema,
+    ema_series,
+    macd_series,
+    sessions_since_cross,
+    sma,
+    sma_series,
+    wilder_rsi,
+)
 
 # StockCharts ChartSchool RSI worked example (cs-rsi.xls), 14-period Wilder RSI.
 REFERENCE_PRICES = [
@@ -96,3 +107,43 @@ def test_series_match_single_value_functions() -> None:
 )
 def test_sessions_since_cross(fast: list, slow: list, expected: int | None) -> None:
     assert sessions_since_cross(fast, slow) == expected
+
+
+def _random_walk(n: int, seed: int = 7) -> list[float]:
+    rng = np.random.default_rng(seed)
+    return list(100 * np.cumprod(1 + rng.normal(0, 0.015, n)))
+
+
+def test_bollinger_matches_pandas_population_std() -> None:
+    values = _random_walk(60)
+    middle, upper, lower, std = bollinger(values, 20, 2.5)
+    window = pd.Series(values[-20:])
+    assert middle == pytest.approx(window.mean(), rel=1e-12)
+    assert std == pytest.approx(window.std(ddof=0), rel=1e-12)
+    assert (upper, lower) == pytest.approx((middle + 2.5 * std, middle - 2.5 * std), rel=1e-12)
+    assert bollinger([5.0, 5.0, 5.0], 3, 2) == (5.0, 5.0, 5.0, 0.0)
+    with pytest.raises(ValueError):
+        bollinger([1.0, 2.0], 3, 2)
+
+
+def test_macd_matches_pandas_after_warmup() -> None:
+    # pandas seeds its EMAs with the first value instead of a simple average;
+    # after a long warm-up the starting point no longer matters.
+    values = _random_walk(500)
+    macd, signal = macd_series(values, 12, 26, 9)
+    x = pd.Series(values)
+    ref_macd = x.ewm(span=12, adjust=False).mean() - x.ewm(span=26, adjust=False).mean()
+    ref_signal = ref_macd.ewm(span=9, adjust=False).mean()
+    assert macd[-1] == pytest.approx(ref_macd.iloc[-1], abs=1e-9)
+    assert signal[-1] == pytest.approx(ref_signal.iloc[-1], abs=1e-9)
+
+
+def test_macd_series_alignment_and_seeding() -> None:
+    values = [float(v) for v in range(1, 11)]
+    macd, signal = macd_series(values, 2, 4, 3)
+    assert macd[:3] == [None] * 3 and macd[3] is not None  # slow EMA starts at index 3
+    assert signal[:5] == [None] * 5  # signal line needs 3 MACD values
+    assert signal[5] == pytest.approx(sum(m for m in macd[3:6] if m is not None) / 3)
+    fast, slow = ema_series(values, 2), ema_series(values, 4)
+    assert macd[-1] == pytest.approx(fast[-1] - slow[-1])  # type: ignore[operator]
+    assert macd_series([1.0, 2.0], 2, 4, 3) == ([None, None], [None, None])

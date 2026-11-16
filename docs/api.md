@@ -217,7 +217,7 @@ Strategies are generic: adding one needs no new endpoint.
 - **Output `format`:** `price`, `number`, `percent`, `integer` or `text`.
 - The frontend builds the configuration form from `parameters`, and the result columns from `outputs`.
 - `explanation` is the user-facing description of the strategy: plain text with blank-line-separated blocks, `## ` headings and `- ` bullets.
-- Strategies: `mean_reversion`, `rsi` (parameters `period`, `oversold`, `overbought`; outputs `rsi`, `average_gain`, `average_loss`) and `ma_crossover` (parameters `fast_period`, `slow_period`, `average_type` `SMA`/`EMA`, `signal_mode` `Recent cross`/`Trend`, `recent_sessions`, `use_current_price`; outputs `fast_ma`, `slow_ma`, `spread_pct`, `sessions_since_cross`).
+- Strategies: `mean_reversion`, `rsi` (parameters `period`, `oversold`, `overbought`; outputs `rsi`, `average_gain`, `average_loss`), `ma_crossover` (parameters `fast_period`, `slow_period`, `average_type` `SMA`/`EMA`, `signal_mode` `Recent cross`/`Trend`, `recent_sessions`, `use_current_price`; outputs `fast_ma`, `slow_ma`, `spread_pct`, `sessions_since_cross`), `bollinger` (parameters `period`, `width`, `signal_mode` `Mean reversion`/`Breakout`, `use_current_price`; outputs `lower_band`, `middle_band`, `upper_band`, `percent_b`, `bandwidth`, `width_rank`) and `macd` (parameters `fast_period`, `slow_period`, `signal_period`, `signal_mode` `Recent cross`/`Trend`, `recent_sessions`, `use_current_price`; outputs `macd`, `signal_line`, `histogram`, `histogram_pct`, `sessions_since_cross`).
 
 ### Run
 

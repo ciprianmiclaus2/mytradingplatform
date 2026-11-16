@@ -226,8 +226,10 @@ Strategies are listed by title. Each package holds `config.py` (parameters, outp
 | Mean Reversion | `mean_reversion` | z-score of the current price against the previous N closes: BUY ≤ buy threshold, SELL ≥ sell threshold | N sessions |
 | RSI | `rsi` | Wilder RSI over closes + current price: BUY ≤ oversold (30), SELL ≥ overbought (70) | period × 10 (warm-up); calculated with at least `period` sessions |
 | Moving Average Crossover | `ma_crossover` | *Recent cross* (default): BUY/SELL only if the fast MA crossed the slow MA within the last N sessions. *Trend*: BUY while fast > slow, SELL while below. Reports sessions since the last cross (searched up to 250 sessions back). SMA or EMA; current price optional | slow + 250 (SMA); max(slow + 250, slow × 3) (EMA) |
+| Bollinger Bands | `bollinger` | Bands = SMA(period) ± width × population std dev over closes (+ current price, optional). *Mean reversion* (default): BUY ≤ lower band, SELL ≥ upper band. *Breakout*: the reverse. Reports %B, width % and a width rank against the previous 125 sessions (0 = squeeze) | period + 125; calculated with at least `period` prices |
+| MACD | `macd` | MACD = EMA(fast) − EMA(slow), signal line = EMA(signal) of MACD, histogram = MACD − signal. Same *Recent cross* (default, window 3) / *Trend* modes as the MA crossover, on the MACD/signal-line cross. Histogram % = histogram ÷ price | max(slow × 5, slow + signal) + 250; calculated with at least slow + signal − 1 prices |
 
-The RSI implementation is tested against the StockCharts ChartSchool worked example (19 values, exact to 2 decimals).
+The RSI implementation is tested against the StockCharts ChartSchool worked example (19 values, exact to 2 decimals). Bollinger Bands and MACD are tested against pandas (`rolling` population std dev; `ewm(adjust=False)` after warm-up, since pandas seeds its EMAs with the first value rather than an SMA).
 
 ### Mean Reversion
 

@@ -201,7 +201,7 @@ def test_ma_invalid_configuration(config: dict, field: str) -> None:
 
 def test_all_strategies_are_discovered_with_explanations() -> None:
     discover_strategies()
-    for name in ("mean_reversion", "rsi", "ma_crossover"):
+    for name in ("mean_reversion", "rsi", "ma_crossover", "bollinger", "macd"):
         schema = strategy_registry.implementation(name)().get_config_schema()
         assert len(schema.explanation) > 500
         assert "## Signals" in schema.explanation and "## Things to know" in schema.explanation

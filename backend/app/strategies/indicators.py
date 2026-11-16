@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import statistics
 from collections.abc import Sequence
 
 
@@ -114,3 +115,37 @@ def sessions_since_cross(fast: Sequence[float | None], slow: Sequence[float | No
         elif s == -current:
             return last - became
     return None
+
+
+def bollinger(values: Sequence[float], period: int, width: float) -> tuple[float, float, float, float]:
+    """Bollinger Bands of the last ``period`` values.
+
+    Returns ``(middle, upper, lower, standard_deviation)``: the simple
+    average, plus and minus ``width`` population standard deviations
+    (Bollinger's own definition).
+    """
+    if period < 1 or len(values) < period:
+        raise ValueError(f"need {period} values, have {len(values)}")
+    window = values[-period:]
+    middle = math.fsum(window) / period
+    std = statistics.pstdev(window, mu=middle)
+    return middle, middle + width * std, middle - width * std, std
+
+
+def macd_series(
+    values: Sequence[float], fast: int, slow: int, signal: int
+) -> tuple[list[float | None], list[float | None]]:
+    """MACD line (fast EMA − slow EMA) and its signal line (EMA of the MACD line).
+
+    Both lists align with ``values``; positions before each line is
+    defined are None. The signal line is seeded from the first ``signal``
+    MACD values.
+    """
+    fast_ema, slow_ema = ema_series(values, fast), ema_series(values, slow)
+    macd: list[float | None] = [
+        f - s if f is not None and s is not None else None for f, s in zip(fast_ema, slow_ema, strict=True)
+    ]
+    first = next((i for i, m in enumerate(macd) if m is not None), len(macd))
+    defined = [m for m in macd[first:] if m is not None]
+    signal_line: list[float | None] = [None] * first + ema_series(defined, signal)
+    return macd, signal_line
