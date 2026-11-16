@@ -198,3 +198,29 @@ export interface StrategyRunResult {
   calculated_at: string
   results: TickerResult[]
 }
+
+// -- Market data refresh ------------------------------------------------------------
+
+export type RefreshOutcome = 'completed' | 'partial' | 'failed'
+
+export interface TickerError {
+  ticker: string
+  code: string
+  message: string
+}
+
+export interface RefreshResult {
+  status: RefreshOutcome
+  started_at: string
+  completed_at: string
+  tickers_requested: number
+  tickers_updated: number
+  tickers_failed: number
+  errors: TickerError[]
+}
+
+export interface MarketDataStatus {
+  provider: string
+  last_refresh: RefreshResult | null
+  last_successful_refresh_at: string | null
+}

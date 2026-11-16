@@ -2,7 +2,7 @@
 
 A locally hosted, single-user signal-generation dashboard. It monitors watchlists of ticker symbols, displays held positions with their P&L, and runs configurable strategies such as mean reversion. All data is stored in local Parquet files. It never places real trades and does no accounting.
 
-> **Status:** Phases 1–9 are complete. The backend is done, and the dashboard has working Portfolio, Positions and Strategy panes. The global Refresh button comes in Phase 10; until then, prices are fetched when a ticker is added. See
+> **Status:** Phases 1–10 are complete: the backend, the Portfolio, Positions and Strategy panes, and the global Refresh. Phase 11 (integration and QA) remains. See
 > [docs/MyTradingPlatform_v1_ImplementationPlan.md](docs/MyTradingPlatform_v1_ImplementationPlan.md)
 > for the full V1 plan.
 
@@ -101,6 +101,8 @@ The dashboard is a grid of panes.
 - **Move** a pane by dragging its title bar. **Resize** it from its bottom-right corner.
 - **–** minimises a pane to its title bar. **×** removes it, after you confirm.
 - **Menu → Reset layout** restores the default panes.
+
+**Refresh:** the **↻ Refresh** button in the header fetches the latest price of every ticker the dashboard uses, once each: every portfolio's tickers, open positions, and tickers typed into strategy panes. All panes then reload and strategies recalculate. Next to the button you see the outcome (for example "1 of 12 tickers failed", with **details**) and the time of the last successful refresh. A ticker that fails keeps its last valid price, marked ⚠. Prices are only fetched when you press Refresh (and when a ticker is first added).
 
 **Panes:**
 

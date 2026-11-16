@@ -9,6 +9,7 @@ from fastapi import Depends, Request
 from app.market_data.service import MarketDataService
 from app.portfolio.service import PortfolioService
 from app.positions.service import PositionService
+from app.refresh.service import RefreshService
 from app.strategies.engine import StrategyEngine
 
 
@@ -38,3 +39,10 @@ def get_strategy_engine(request: Request) -> StrategyEngine:
 
 
 Strategies = Annotated[StrategyEngine, Depends(get_strategy_engine)]
+
+
+def get_refresh_service(request: Request) -> RefreshService:
+    return request.app.state.refresh
+
+
+Refresher = Annotated[RefreshService, Depends(get_refresh_service)]

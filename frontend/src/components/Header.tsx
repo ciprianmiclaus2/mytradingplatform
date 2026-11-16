@@ -1,10 +1,13 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import type { DashboardApi } from '../dashboard/useDashboard'
 import type { BackendHealthState } from '../hooks/useBackendHealth'
 import { paneDefinitions } from '../panes/registry'
+import { dashboardExtraTickers } from '../refresh/dashboardTickers'
+import { useMarketRefresh } from '../refresh/useMarketRefresh'
 import { BackendStatus } from './BackendStatus'
 import { ConfirmDialog } from './ConfirmDialog'
 import { Menu } from './Menu'
+import { RefreshControl } from './RefreshControl'
 
 interface Props {
   dashboard: DashboardApi
@@ -14,6 +17,9 @@ interface Props {
 
 export function Header({ dashboard, health, onRetryHealth }: Props) {
   const [confirmReset, setConfirmReset] = useState(false)
+  const { state } = dashboard
+  const getExtraTickers = useCallback(() => dashboardExtraTickers(state), [state])
+  const refresh = useMarketRefresh(getExtraTickers)
 
   return (
     <header className="flex flex-wrap items-center gap-3 border-b border-slate-200 bg-white px-4 py-2">
@@ -38,6 +44,7 @@ export function Header({ dashboard, health, onRetryHealth }: Props) {
           onSelect: () => dashboard.addPane(def.type),
         }))}
       />
+      <RefreshControl {...refresh} onRefresh={refresh.refresh} />
       <div className="ml-auto">
         <BackendStatus state={health} onRetry={onRetryHealth} />
       </div>

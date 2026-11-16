@@ -148,7 +148,7 @@ API (api/portfolios.py) ─► PortfolioService (portfolio/service.py) ─► Po
   - `PortfolioService.position_tickers(portfolio_id)` supplies the tickers of open positions.
   - `on_deleted` hooks run under the lock when a portfolio is deleted, to remove its positions.
   - `prune_favourites()` drops favourites that are no longer tickers, e.g. after a position closes.
-- **Refresh support:** `all_tickers()` returns the unique tickers across all portfolios, for the market data refresh (Phase 10).
+- **Refresh support:** `all_tickers()` returns the unique tickers across all portfolios (open positions for positions lists), used by the global refresh.
 
 ## Positions
 
@@ -228,6 +228,25 @@ Signal state rules:
 - **Validation:** `check_config` requires `buy_threshold < sell_threshold`.
 - **No signal:** insufficient history, a zero standard deviation, a currency mismatch, a missing quote or a history error are each reported as a status, never as a signal.
 
+## Global refresh
+
+```text
+Refresh button ─ POST /api/market-data/refresh {"extra_tickers": [manual strategy-pane tickers]}
+                   RefreshService (refresh/service.py)
+                     portfolios.all_tickers() ∪ extra_tickers  → unique list
+                     MarketDataService.refresh(list)           → provider once per ticker
+                   ← RefreshResult {status: completed|partial|failed, counts, errors}
+frontend: notifyDataChanged() → every pane reloads; strategy panes re-run
+```
+
+- `RefreshService` is the only code that combines portfolios and market data, so neither service depends on the other.
+- The request body is optional, and unknown fields are rejected (the old `{"tickers": [...]}` body now returns 422 rather than being ignored).
+- Only one refresh runs at a time. A second request gets 409 `refresh_in_progress`; the frontend also disables the button while a refresh runs.
+- Partial success is normal. Failed tickers keep their last valid price and are reported as stale until a later refresh succeeds.
+- The frontend reloads all panes after any refresh result, including partial or failed ones, so stale markers appear. If the request itself fails, nothing reloads and the last data stays on screen.
+- On startup the header shows the last refresh recorded by the backend (`GET /api/market-data/status`).
+- The refresh request is synchronous, with a 120-second client timeout. The provider's whole batch is bounded by `MARKET_DATA_TIMEOUT` (30s by default).
+
 ## Frontend dashboard
 
 ```text
@@ -249,6 +268,8 @@ App
 | `components/DataGrid.tsx` | Shared sortable table with loading, error, empty and footer (totals) rows |
 | `hooks/useApiData.ts` | Loads API data by key; keeps the last good data while reloading and after an error |
 | `hooks/dataVersion.ts` | "Backend data changed" signal; every pane reloads when it changes |
+| `refresh/` | Global refresh: `useMarketRefresh`, and the strategy-pane tickers sent as `extra_tickers` |
+| `components/RefreshControl.tsx` | Refresh button, outcome, error details, last successful refresh time |
 | `panes/PortfolioPane.tsx` | Quotes for a portfolio; add/remove tickers, favourites |
 | `panes/positions/` | Positions pane, add/edit/close dialogs, decimal validation |
 | `panes/strategy/` | Strategy pane, setup view, schema-driven settings form, ticker sources |
@@ -261,7 +282,7 @@ The registry is the only place that knows the pane types. Adding a type means ad
 
 - Each pane reads its configuration with checked helpers (`panes/config.ts`), because it comes from localStorage. Bad values fall back to defaults, and a portfolio that no longer exists shows a message instead of an error.
 - Pane configurations: Portfolio `{portfolioId}`, Positions `{portfolioId, showClosed}`, Strategy `{strategy, params, source}`, where `source` is `{kind: "portfolio" | "favourites", portfolioId}` or `{kind: "manual", tickers}`.
-- After any change (ticker added, position closed, portfolio renamed) the pane calls `notifyDataChanged()`, so other panes showing the same data reload. Phase 10's Refresh will use the same signal.
+- After any change (ticker added, position closed, portfolio renamed) the pane calls `notifyDataChanged()`, so other panes showing the same data reload. The global Refresh uses the same signal.
 - Reloads keep the last good data on screen; an error is shown above it with a Retry button.
 - Every pane body is wrapped in an error boundary, so a rendering failure in one pane does not affect the others.
 - All calculations stay in the backend. The frontend only formats numbers (percent values arrive in percent units) and colours gains green and losses red.

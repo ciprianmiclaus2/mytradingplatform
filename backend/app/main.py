@@ -22,6 +22,7 @@ from app.portfolio.repository import PortfolioRepository
 from app.portfolio.service import PortfolioService
 from app.positions.repository import PositionRepository
 from app.positions.service import PositionService
+from app.refresh.service import RefreshService
 from app.strategies.engine import StrategyEngine
 from app.strategies.registry import StrategyRegistry, discover_strategies, strategy_registry
 from app.strategies.signals import SignalStore
@@ -68,6 +69,7 @@ def create_app(
             persistence.backups,
         )
         app.state.portfolios.ensure_defaults()
+        app.state.refresh = RefreshService(app.state.portfolios, app.state.market_data)
         if registry is None:
             discover_strategies()
         app.state.strategies = StrategyEngine(

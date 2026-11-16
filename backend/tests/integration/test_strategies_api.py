@@ -39,7 +39,7 @@ def test_run_with_signal_history(api: TestClient, fake_provider: FakeProvider) -
     today = datetime.now(UTC).date()
     fake_provider.set_closes("LOW", {today - timedelta(days=i): 100.0 for i in range(1, 30)})
     fake_provider.set_quote("LOW", 90.0, previous_close=91.0)
-    api.post("/api/market-data/refresh", json={"tickers": ["LOW"]})
+    api.post("/api/market-data/refresh", json={"extra_tickers": ["LOW"]})
 
     body = {"tickers": ["low", "NOPE"], "config": {"lookback": 2}, "instance_id": "pane-abc"}
     resp = api.post("/api/strategies/level_test/run", json=body)
@@ -88,7 +88,7 @@ def test_default_app_runs_mean_reversion(client: TestClient, fake_provider: Fake
     closes = {today - timedelta(days=i): (98.0 if i % 2 else 102.0) for i in range(1, 60)}
     fake_provider.set_closes("AAPL", closes)
     fake_provider.set_quote("AAPL", 95.0, previous_close=97.0, timestamp=datetime.now(UTC))
-    client.post("/api/market-data/refresh", json={"tickers": ["AAPL"]})
+    client.post("/api/market-data/refresh", json={"extra_tickers": ["AAPL"]})
 
     assert [s["name"] for s in client.get("/api/strategies").json()] == ["mean_reversion"]
     resp = client.post("/api/strategies/mean_reversion/run",

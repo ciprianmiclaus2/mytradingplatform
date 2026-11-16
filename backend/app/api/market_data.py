@@ -6,9 +6,9 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Query
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.api.deps import MarketData
+from app.api.deps import MarketData, Refresher
 from app.market_data.models import (
     HistoryResult,
     LatestPrice,
@@ -87,18 +87,28 @@ def history(
 
 
 class RefreshRequest(BaseModel):
-    tickers: list[str] = Field(max_length=MAX_TICKERS, description="Tickers to refresh")
+    model_config = ConfigDict(extra="forbid")
 
-    @field_validator("tickers")
+    extra_tickers: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_TICKERS,
+        description="Tickers needed by the dashboard that are not in any portfolio (e.g. strategy panes)",
+    )
+
+    @field_validator("extra_tickers")
     @classmethod
     def _normalise(cls, value: list[str]) -> list[str]:
         return normalise_tickers(value)
 
 
 @router.post("/refresh", response_model=RefreshResult)
-def refresh(service: MarketData, body: RefreshRequest) -> RefreshResult:
-    """Fetch the latest prices once per unique ticker. Partial success is reported per ticker."""
-    return service.refresh(body.tickers)
+def refresh(service: Refresher, body: RefreshRequest | None = None) -> RefreshResult:
+    """Refresh every portfolio's tickers plus ``extra_tickers``, once per unique ticker.
+
+    Partial success is reported per ticker; a failed ticker keeps its last
+    valid price (marked stale). Returns 409 if a refresh is already running.
+    """
+    return service.refresh((body or RefreshRequest()).extra_tickers)
 
 
 @router.get("/status", response_model=MarketDataStatus)

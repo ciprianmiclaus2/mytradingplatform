@@ -32,7 +32,7 @@ def test_refresh_then_prices_then_status(client: TestClient, fake_provider: Fake
     fake_provider.set_quote("AAPL", 215.42, previous_close=218.10)
     fake_provider.quotes["MSFT"] = ProviderError("timeout")
 
-    resp = client.post("/api/market-data/refresh", json={"tickers": ["aapl", "MSFT", "AAPL"]})
+    resp = client.post("/api/market-data/refresh", json={"extra_tickers": ["aapl", "MSFT", "AAPL"]})
 
     assert resp.status_code == 200
     body = resp.json()
@@ -54,7 +54,7 @@ def test_refresh_then_prices_then_status(client: TestClient, fake_provider: Fake
 
 
 def test_refresh_rejects_invalid_ticker(client: TestClient) -> None:
-    resp = client.post("/api/market-data/refresh", json={"tickers": ["AAPL", "bad ticker!"]})
+    resp = client.post("/api/market-data/refresh", json={"extra_tickers": ["AAPL", "bad ticker!"]})
     assert resp.status_code == 422
     assert resp.json()["error"]["code"] == "validation_error"
 

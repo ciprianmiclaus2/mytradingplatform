@@ -12,6 +12,7 @@ const positionsList = portfolio({ id: 'pf-pos', name: 'Main Positions', type: 'p
 const healthy = () =>
   mockApi({
     'GET /health': health,
+    'GET /market-data/status': { provider: 'fake', last_refresh: null, last_successful_refresh_at: null },
     'GET /portfolios': [watchlist, positionsList],
     'GET /portfolios/pf-main/quotes': { portfolio_id: 'pf-main', rows: [quote('AAPL', { price: 190.5 }), quote('MSFT', { favourite: true })] },
     'GET /portfolios/pf-pos/positions': { portfolio_id: 'pf-pos', positions: [], totals: [] },
