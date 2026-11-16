@@ -83,6 +83,21 @@ def test_run_errors(api: TestClient) -> None:
     assert api.get("/api/strategies/signals", params={"limit": 0}).status_code == 422
 
 
-def test_default_app_discovers_strategies(client: TestClient) -> None:
-    # The real registry: no strategies yet in Phase 6 (Mean Reversion arrives in Phase 7).
-    assert client.get("/api/strategies").status_code == 200
+def test_default_app_runs_mean_reversion(client: TestClient, fake_provider: FakeProvider) -> None:
+    today = datetime.now(UTC).date()
+    closes = {today - timedelta(days=i): (98.0 if i % 2 else 102.0) for i in range(1, 60)}
+    fake_provider.set_closes("AAPL", closes)
+    fake_provider.set_quote("AAPL", 95.0, previous_close=97.0, timestamp=datetime.now(UTC))
+    client.post("/api/market-data/refresh", json={"tickers": ["AAPL"]})
+
+    assert [s["name"] for s in client.get("/api/strategies").json()] == ["mean_reversion"]
+    resp = client.post("/api/strategies/mean_reversion/run",
+                       json={"tickers": ["AAPL"], "config": {"lookback_days": 10}, "instance_id": "p1"})
+    assert resp.status_code == 200
+    [row] = resp.json()["results"]
+    assert row["status"] == "OK" and row["signal"] == "BUY"
+    assert row["metrics"] == {"mean": 100.0, "standard_deviation": 2.0, "z_score": -2.5}
+
+    bad = client.post("/api/strategies/mean_reversion/run",
+                      json={"tickers": ["AAPL"], "config": {"buy_threshold": 3, "sell_threshold": 2}})
+    assert bad.status_code == 422 and "buy_threshold" in bad.json()["error"]["details"]

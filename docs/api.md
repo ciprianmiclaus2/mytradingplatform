@@ -275,3 +275,25 @@ These are filled only for `OK` rows of runs that had an `instance_id`:
 ```
 
 The response is paginated: `{"items": [...], "total": 12, "limit": 50, "offset": 0}`.
+
+### Mean Reversion (`mean_reversion`)
+
+| Parameter | Type | Default | Rules |
+|---|---|---|---|
+| `lookback_days` | integer | 20 | 2–500. Number of previous completed sessions |
+| `buy_threshold` | number | -2.0 | Must be lower than `sell_threshold` |
+| `sell_threshold` | number | 2.0 | |
+
+The `metrics` are:
+
+- `mean` and `standard_deviation`: the population standard deviation of the previous `lookback_days` regular closes. The current session is excluded.
+- `z_score` = (current price − mean) / standard deviation.
+
+The signal is `BUY` when Z ≤ `buy_threshold`, `SELL` when Z ≥ `sell_threshold`, and `null` otherwise.
+
+| Status | When |
+|---|---|
+| `INSUFFICIENT_DATA` | Fewer than `lookback_days` sessions are available. The message says how many there are |
+| `INVALID_CALCULATION` | The standard deviation is zero, or the history and the quote are in different currencies. No signal is produced |
+
+Signal transitions record `z_score` as their metric.

@@ -215,3 +215,15 @@ Signal state rules:
    - `calculate(tickers, market_data, config)`, returning one `StrategyOutput` per ticker. Report problems through `status` rather than raising.
    - Optionally override `check_config(config)` for cross-parameter rules.
 3. That's all. `discover_strategies()` imports `app.strategies.<pkg>.strategy` at startup. Only sub-packages of this trusted application package are imported. No new API route or frontend form is needed.
+
+### Mean Reversion
+
+`strategies/mean_reversion/` holds `config.py` (parameters and output columns) and `strategy.py` (the calculation).
+
+- **Inputs:** the regular `close` of the last `lookback_days` completed sessions before the quote's session. This is split-adjusted by the provider and not dividend-adjusted.
+- **Calculation:**
+  - `statistics.fmean` gives the mean, and `statistics.pstdev` the population standard deviation. `pstdev` is computed exactly, so constant prices give exactly 0.
+  - Z = (price − mean) / std.
+  - Both thresholds are inclusive.
+- **Validation:** `check_config` requires `buy_threshold < sell_threshold`.
+- **No signal:** insufficient history, a zero standard deviation, a currency mismatch, a missing quote or a history error are each reported as a status, never as a signal.
