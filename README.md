@@ -2,7 +2,7 @@
 
 A locally hosted, single-user signal-generation dashboard. It monitors watchlists of ticker symbols, displays held positions with their P&L, and runs configurable strategies such as mean reversion. All data is stored in local Parquet files. It never places real trades and does no accounting.
 
-> **Status:** Phases 1–7 are complete. The backend is done: project foundation, persistence, market data, portfolios, positions, the strategy engine and Mean Reversion. Next up is the frontend dashboard. See
+> **Status:** Phases 1–8 are complete. The backend is done, and the frontend dashboard shell is in place: panes can be added, moved, resized, minimised and removed, and the layout is saved in the browser. The pane contents come in Phase 9. See
 > [docs/MyTradingPlatform_v1_ImplementationPlan.md](docs/MyTradingPlatform_v1_ImplementationPlan.md)
 > for the full V1 plan.
 
@@ -26,7 +26,7 @@ The backend is a modular monolith running as a single process. The frontend call
 |---|---|
 | Backend | Python 3.12, FastAPI, Pydantic, pydantic-settings, Uvicorn |
 | Data | Pandas, PyArrow (Parquet), DuckDB, yfinance |
-| Frontend | React 19, TypeScript, Vite, Tailwind CSS 4 |
+| Frontend | React 19, TypeScript, Vite, Tailwind CSS 4, React Grid Layout 2 |
 | Tests | Pytest + FastAPI TestClient, Vitest + Testing Library |
 
 Exact versions are pinned in [backend/requirements.txt](backend/requirements.txt) and [frontend/package.json](frontend/package.json).
@@ -92,6 +92,17 @@ curl http://127.0.0.1:5173/api/health          # via the Vite proxy
 ```
 
 The header of the web page shows "Backend connected" when the frontend can reach the backend.
+
+### Using the dashboard
+
+The dashboard is a grid of panes.
+
+- **Add pane** adds a Portfolio, Positions or Strategy pane. You can have several of the same type.
+- **Move** a pane by dragging its title bar. **Resize** it from its bottom-right corner.
+- **–** minimises a pane to its title bar. **×** removes it, after you confirm.
+- **Menu → Reset layout** restores the default panes.
+
+The layout is saved automatically in your browser's `localStorage`, under the key `my-trading-platform-layout`, and is restored when you reopen the page. A saved layout that can't be read is replaced by the default layout, and a notice tells you so.
 
 ## Configuration
 

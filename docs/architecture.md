@@ -227,3 +227,52 @@ Signal state rules:
   - Both thresholds are inclusive.
 - **Validation:** `check_config` requires `buy_threshold < sell_threshold`.
 - **No signal:** insufficient history, a zero standard deviation, a currency mismatch, a missing quote or a history error are each reported as a status, never as a signal.
+
+## Frontend dashboard
+
+```text
+App
+ ├─ Header        Menu (Reset layout) · Add pane menu · BackendStatus
+ ├─ warning banners (saved layout invalid, layout cannot be saved)
+ └─ Dashboard     React Grid Layout v2 (useContainerWidth + ReactGridLayout)
+     └─ PaneFrame × n   title bar (drag handle) · minimise · remove (ConfirmDialog) · pane body
+```
+
+| File | Responsibility |
+|---|---|
+| `dashboard/types.ts` | `Pane {id, type, title, config}`, `PaneLayout {i, x, y, w, h}`, `DashboardState`, the stored document |
+| `dashboard/reducer.ts` | Pure state changes: add, remove, layout change, minimise/restore, update config, reset |
+| `dashboard/storage.ts` | Loads and saves to localStorage, validates saved layouts, and tracks whether saving worked |
+| `dashboard/useDashboard.ts` | Reducer plus automatic saving after every change |
+| `dashboard/grid.ts` | Grid geometry: 12 columns, 32px rows, 12px margins, minimised height of 1 row |
+| `panes/registry.ts` | Pane types: title, description, component, default and minimum size, default config |
+
+### Pane types
+
+The registry is the only place that knows the pane types. Adding a type means adding one registry entry with a component that receives `PaneProps {pane, onConfigChange}`. The menus, grid and storage are generic.
+
+### Pane ids
+
+Ids are `pane-<uuid>`. They also serve as the backend strategy `instance_id` (letters, digits and `-`, at most 64 characters).
+
+### Persistence
+
+The layout is saved under `my-trading-platform-layout` as:
+
+```json
+{"version": 1, "panes": [...], "layouts": [...], "minimised": {"<pane id>": <height to restore>}}
+```
+
+Loading validates the saved layout:
+
+- **Fall back to the default layout, with a notice:** invalid JSON, a wrong version, or a malformed overall structure.
+- **Drop just that pane, with a notice:** an unknown type, a bad id, a duplicate id, invalid config, or a missing or invalid layout.
+- **Clamp:** widths are clamped to the grid.
+
+Storage errors never crash the app. The dashboard keeps working in memory and shows a "cannot be saved" banner.
+
+### Grid behaviour
+
+- The grid measures the container before its first render (`measureBeforeMount`), so panes don't jump from the library's 1280px default width.
+- Only the title bar starts a drag, so pane contents stay interactive.
+- A minimised pane is 1 row high, can't be resized, and remembers its height for when it's restored.
