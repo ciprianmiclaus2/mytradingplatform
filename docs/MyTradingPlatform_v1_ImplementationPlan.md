@@ -1,7 +1,7 @@
 # My Trading Platform
 ## Version 1 – Implementation Plan for AI Coding Agent
 
-**Status:** Approved for implementation  
+**Status:** Approved for implementation. Revision 1.1: positions and portfolios simplified  
 **Architecture:** Local single-user web application  
 **Backend:** Python / FastAPI  
 **Frontend:** React / TypeScript  
@@ -10,13 +10,54 @@
 
 ---
 
+# Revision 1.1 (2026-11-16)
+
+## Scope change
+
+The platform generates and displays **signals**. It is not a trading or accounting system.
+
+- **Portfolios are named watchlists.** Each has one of two types:
+  - `watchlist`: tickers you monitor;
+  - `positions`: tickers you hold, each with a quantity and an entry price, kept for display only.
+- **No transaction ledger and no cash management.** Positions are edited directly. Closing a position records an exit price and date, and the row stays visible as closed history.
+- **Removed:**
+  - transactions;
+  - cash balances, deposits and withdrawals;
+  - weighted-average-cost accounting;
+  - correction transactions;
+  - the negative-cash and short-sale ledger rules.
+- **Rewritten sections:** §1, §3, §6, §7, §8.4, §10.2–10.4, §11, §13.2–13.4, §14.2, §15, §17 (Phases 4, 5 and 11), §18, §20.3 and §21.
+
+## Decisions taken during Phases 1–3
+
+- **Data directory:**
+  - `DATA_DIR` defaults to `~/mytradingplatform/data`.
+  - A relative path is resolved against the project root.
+  - `./start.sh` starts the backend and frontend together.
+- **Persistence:**
+  - One data-wide write lock.
+  - Atomic writes of validated files.
+  - Schema name and version stored in each file's metadata.
+  - Derived data carries a fingerprint of its sources and is rebuilt when stale.
+  - Backups on startup (skipped if nothing changed) and before destructive operations.
+- **Market data:**
+  - `current.parquet` has four extra columns: `previous_close`, `trading_date`, `delayed` and `fetched_at`.
+  - `delayed` is `true` or unknown, never `false`.
+  - Refresh status is `completed`, `partial` or `failed`.
+  - A daily session counts as complete from the next UTC day.
+  - Search results may have no currency.
+  - Futures and options are excluded from search.
+- **Strategy panes** live in browser localStorage, so the frontend sends their tickers in the refresh request (§11).
+
+---
+
 # 1. Project objectives
 
 Build a locally hosted trading dashboard that allows a user to:
 
-1. Monitor a portfolio of ticker symbols.
-2. Track open and closed investment positions.
-3. Monitor available cash and portfolio valuation.
+1. Monitor named watchlists (portfolios) of ticker symbols.
+2. Record held positions (quantity, entry price) and closed positions (exit price, exit date) for display.
+3. Monitor position valuation and profit/loss per currency.
 4. Execute configurable trading strategies against selected ticker symbols.
 5. Visualise strategy calculations and trading signals.
 6. Arrange multiple dashboard panes in a configurable layout.
@@ -34,11 +75,15 @@ The architecture must support future enhancements without requiring fundamental 
 - Additional financial instruments.
 - Potential future broker integration.
 
+The platform is a signal-generation and monitoring tool. Positions are informational records entered by the user, not an accounting ledger.
+
 ## 1.1 Out of scope
 
 The following are explicitly excluded from version 1:
 
 - Real trading or broker integration.
+- Transaction ledgers, cash balances and cash management.
+- Accounting for positions: tax lots, fees, dividends, corporate actions.
 - Automatic execution of buy/sell orders.
 - Short selling.
 - Options, futures and other derivatives.
@@ -100,7 +145,6 @@ my-trading-platform/
 │   │   │   ├── market_data.py
 │   │   │   ├── portfolios.py
 │   │   │   ├── positions.py
-│   │   │   ├── transactions.py
 │   │   │   └── strategies.py
 │   │   │
 │   │   ├── market_data/
@@ -117,10 +161,6 @@ my-trading-platform/
 │   │   │   └── service.py
 │   │   │
 │   │   ├── positions/
-│   │   │   ├── models.py
-│   │   │   └── service.py
-│   │   │
-│   │   ├── transactions/
 │   │   │   ├── models.py
 │   │   │   └── service.py
 │   │   │
@@ -173,7 +213,6 @@ my-trading-platform/
 │   │
 │   ├── portfolios/
 │   ├── positions/
-│   ├── transactions/
 │   ├── strategies/
 │   ├── backups/
 │   └── metadata/
@@ -196,8 +235,10 @@ The data directory must be configurable through an environment variable.
 Default:
 
 ```text
-./data
+~/mytradingplatform/data
 ```
+
+A relative path is resolved against the project root.
 
 The backend must create the required directory structure automatically on startup.
 
@@ -418,265 +459,217 @@ Never label data as real-time unless the provider explicitly guarantees this.
 
 # 6. Portfolio implementation
 
-## 6.1 Portfolio model
+## 6.1 Concept
 
-Create a portfolio model with the following fields:
+A portfolio is a named list of ticker symbols. There are two types:
+
+| Type | Purpose |
+|---|---|
+| `watchlist` | Tickers to monitor |
+| `positions` | Tickers held, each with a quantity and entry price (see §7), for valuation and P&L display |
+
+Multiple portfolios of each type are supported. A ticker can belong to several portfolios.
+
+## 6.2 Portfolio model
 
 ```text
 id
 name
 description
+type            watchlist | positions
 tickers
 favourites
 created_at
 updated_at
 ```
 
-The initial application should create one default portfolio:
+Rules:
+
+- **Name:** required, at most 100 characters, and unique regardless of case.
+- **Type:** chosen when the portfolio is created and never changed.
+- **Watchlist tickers:** an ordered list maintained by the user, with no duplicates.
+- **Positions tickers:** read-only. They are always the tickers of the portfolio's open positions.
+- **Favourites:** must be a subset of `tickers`. Removing a ticker, or closing or deleting its position, also removes it from favourites.
+
+## 6.3 Default portfolios
+
+On first startup, create:
 
 ```text
-Main Portfolio
+Main Portfolio    (watchlist)
+Main Positions    (positions)
 ```
 
-Multiple portfolios must be supported by the underlying model.
+At least one portfolio must always exist, so the last remaining portfolio cannot be deleted.
 
-Ticker symbols must be unique within a portfolio.
+## 6.4 Ticker validation
 
-Favourites must be a subset of the portfolio's tickers.
+When a ticker is added to a watchlist, or a position is created:
 
-A ticker can belong to multiple portfolios.
+1. Normalise and validate the symbol format.
+2. Use the cached latest price if there is one. Otherwise fetch a quote through `MarketDataService`.
+3. If the provider says it has no data for the ticker, reject it as an invalid ticker.
+4. If the provider is unavailable and there is no cached price, reject with an error saying to try again.
+5. Store a fetched quote in the current-price cache, so the ticker shows a price straight away. Its currency becomes the position's currency.
 
-## 6.2 Portfolio functionality
+Ticker search (§5.7) must be available when adding symbols.
+
+## 6.5 Portfolio functionality
 
 Implement:
 
 - Create portfolio.
-- List portfolios.
+- List portfolios, optionally filtered by type.
 - Retrieve portfolio.
-- Update portfolio.
-- Add ticker.
-- Remove ticker.
+- Update name and description.
+- Add ticker (watchlists only).
+- Remove ticker (watchlists only).
 - Add favourite.
 - Remove favourite.
+- Delete portfolio. This also deletes its positions, needs explicit confirmation in the frontend, and takes a backup first.
 
-Ticker search must be available when adding symbols.
-
-## 6.3 Portfolio persistence
-
-Store portfolios in:
+## 6.6 Portfolio persistence
 
 ```text
 data/portfolios/portfolios.parquet
 ```
 
-Use atomic updates.
+One row per portfolio, with `tickers` and `favourites` stored as list columns. Use atomic updates.
 
 ---
 
-# 7. Position and transaction management
+# 7. Positions
 
-This is an important part of the implementation.
+Positions are informational. There is no transaction ledger and no cash balance. Values are entered and edited directly by the user.
 
-The transaction ledger must be the authoritative source of position and cash information.
+## 7.1 Position model
 
-Positions and balances should be derived from transactions and optionally maintained as materialised snapshots.
-
-## 7.1 Transaction model
-
-Implement the following transaction types:
-
-| Type | Effect |
-|---|---|
-| DEPOSIT | Increases cash |
-| WITHDRAWAL | Decreases cash |
-| BUY | Decreases cash and increases position |
-| SELL | Increases cash and decreases position |
-| FEE | Decreases cash |
-
-Required fields:
+A position belongs to a `positions` portfolio.
 
 ```text
 id
-transaction_type
+portfolio_id
 ticker
-quantity
-price
 currency
-fees
-timestamp
-description
+quantity
+entry_price
+entry_date
+status          OPEN | CLOSED
+exit_price
+exit_date
+notes
 created_at
+updated_at
 ```
 
-Ticker and quantity are optional for cash-only transactions.
+Rules:
 
-For trades, quantity and price are mandatory.
+- **Values:** `quantity`, `entry_price` and `exit_price` must be greater than 0. Short positions are not supported.
+- **One open position per ticker:** each portfolio holds at most one OPEN position per ticker. To record a further purchase, the user edits the quantity and entry price.
+- **Closed history:** any number of CLOSED positions per ticker may exist.
+- **Currency:** set from the quote currency when the position is created. Prices are entered in the quote's units; for example, many LSE stocks are quoted in `GBp`, which is pence. There is no currency conversion.
+- **Dates:** `entry_date` is optional and defaults to today. Both dates are informational only.
+- **Storage:** `quantity`, `entry_price` and `exit_price` are stored as exact decimals.
 
-Transactions must be immutable through normal application operations.
+## 7.2 Position operations
 
-Corrections should be represented explicitly rather than silently rewriting historical transactions.
+**Create position**
 
-## 7.2 Position calculation
+Inputs:
 
-Maintain one aggregated open position per ticker and currency.
+- ticker;
+- quantity;
+- entry price, defaulting to the latest available price. If no price is available, the user must supply one;
+- entry date;
+- notes.
 
-Use weighted average cost.
+Validate the ticker as in §6.4, and reject a second OPEN position for the same ticker in the same portfolio.
 
-Example:
+**Edit position**
 
-```text
-BUY 10 AAPL at 200
-BUY 10 AAPL at 220
-```
+- **Open positions:** quantity, entry price, entry date and notes can be changed in place. No change history is kept.
+- **Closed positions:** exit price, exit date and notes can be changed.
 
-Result:
+**Close position**
 
-```text
-Quantity: 20
-Average entry price: 210
-```
+Closing sets the status to CLOSED and records:
 
-If five shares are sold:
+- the exit price, defaulting to the latest available price;
+- the exit date, defaulting to today.
 
-```text
-SELL 5 AAPL at 230
-```
+The whole position closes; to reduce a position, edit its quantity instead. A closed position stays visible as history, and the ticker can then be opened again as a new position.
 
-Result:
+**Delete position**
 
-```text
-Remaining quantity: 15
-Average entry price: 210
-Realised P&L: 100
-```
-
-For V1, do not support short positions.
-
-Reject sales exceeding the available position quantity.
+This removes an open or closed position completely, and is meant for correcting mistakes. It needs explicit confirmation in the frontend.
 
 ## 7.3 Position calculations
 
-Expose the following metrics:
+All calculations are done in the backend.
+
+Open positions expose:
 
 ```text
 ticker
 quantity
-average_entry_price
+entry_price
 current_price
 currency
 cost_basis
 market_value
 unrealised_pnl
 unrealised_pnl_pct
-realised_pnl
 daily_change
 daily_change_pct
 daily_pnl
+stale
 ```
 
-Calculations:
-
 ```text
-Market value = quantity * current price
-
-Cost basis = quantity * average entry price
-
-Unrealised P&L = market value - cost basis
-
-Unrealised P&L % =
-    (unrealised P&L / cost basis) * 100
-
-Daily P&L =
-    quantity * (current price - previous close)
+Cost basis       = quantity * entry price
+Market value     = quantity * current price
+Unrealised P&L   = market value - cost basis
+Unrealised P&L % = (unrealised P&L / cost basis) * 100
+Daily P&L        = quantity * (current price - previous close)
 ```
 
-Use currency-specific valuations.
-
-Do not aggregate different currencies into a misleading single total.
-
-## 7.4 Position operations
-
-Implement:
-
-**Create position**
-
-Creates a BUY transaction.
-
-If entry price is omitted, use the latest available market price.
-
-If no current price is available, require the user to supply an entry price.
-
-**Increase position**
-
-Creates another BUY transaction.
-
-**Edit position**
-
-Changes to quantity or cost basis must be represented by an explicit correction mechanism.
-
-Do not silently modify historical transactions.
-
-**Close position**
-
-Creates a SELL transaction for the entire remaining quantity.
-
-Capture closing price and timestamp.
-
-Calculate realised P&L.
-
-**Partial close**
-
-Creates a SELL transaction for the specified quantity.
-
-**Delete position**
-
-This is reserved for correcting erroneous entries.
-
-Only permit deletion when the position has no SELL transactions.
-
-Delete the associated erroneous BUY transaction records and reverse their cash effects.
-
-Require explicit frontend confirmation.
-
-Do not create an archive entry.
-
-## 7.5 Cash management
-
-Maintain separate cash balances for each currency.
-
-Initial balances are zero.
-
-Implement:
-
-- Deposit cash.
-- Withdraw cash.
-- Retrieve available cash balances.
-- Retrieve cash transaction history.
-
-Buying decreases cash.
-
-Selling increases cash.
-
-Fees decrease cash.
-
-Reject transactions that would create negative cash balances.
-
-This restriction can be relaxed in a future version if margin trading is introduced.
-
-## 7.6 Persistence
-
-Store:
+Closed positions expose:
 
 ```text
-data/transactions/transactions.parquet
+ticker
+quantity
+entry_price
+entry_date
+exit_price
+exit_date
+currency
+realised_pnl
+realised_pnl_pct
+```
+
+```text
+Realised P&L   = quantity * (exit price - entry price)
+Realised P&L % = ((exit price - entry price) / entry price) * 100
+```
+
+If there is no current price, every field that depends on it is null; values are never made up. The `stale` flag comes from market data.
+
+## 7.4 Totals
+
+For each positions portfolio, return totals **per currency**:
+
+- **Open positions:** market value, cost basis, unrealised P&L, unrealised P&L % and daily P&L.
+- **Closed positions:** realised P&L.
+
+Never add different currencies into one total. If a currency's total leaves out positions with no current price, flag it as incomplete.
+
+## 7.5 Persistence
+
+```text
 data/positions/positions.parquet
 ```
 
-Positions are a materialised view of the transaction ledger.
-
-Implement a rebuild operation for positions.
-
-All transaction updates and their resulting cash/position changes must be committed consistently.
+One row per position, open or closed. There is no transaction ledger and no derived snapshot. Use atomic updates. Take a backup before deleting a position.
 
 ---
 
@@ -787,9 +780,8 @@ A strategy must be independent of the source of its tickers.
 
 The frontend or an orchestration service resolves whether the strategy operates on:
 
-- A portfolio.
-- Portfolio favourites.
-- Open positions.
+- A portfolio's tickers. For a `positions` portfolio, these are the tickers of its open positions.
+- A portfolio's favourites.
 - A manually selected list of symbols.
 
 The strategy engine only receives ticker symbols.
@@ -945,35 +937,31 @@ All responses should use consistent JSON structures.
 
 | Endpoint | Method | Purpose |
 |---|---|---|
-| `/portfolios` | GET | List portfolios |
-| `/portfolios` | POST | Create portfolio |
+| `/portfolios?type=` | GET | List portfolios |
+| `/portfolios` | POST | Create portfolio (name, description, type) |
 | `/portfolios/{id}` | GET | Retrieve portfolio |
-| `/portfolios/{id}` | PUT | Update portfolio |
-| `/portfolios/{id}` | DELETE | Delete portfolio |
-
-Portfolio ticker and favourite management can be implemented through the portfolio update endpoint.
+| `/portfolios/{id}` | PUT | Update name and description |
+| `/portfolios/{id}` | DELETE | Delete portfolio and its positions |
+| `/portfolios/{id}/tickers` | POST | Add ticker to a watchlist (validated, §6.4) |
+| `/portfolios/{id}/tickers/{ticker}` | DELETE | Remove ticker from a watchlist |
+| `/portfolios/{id}/favourites/{ticker}` | PUT | Mark favourite |
+| `/portfolios/{id}/favourites/{ticker}` | DELETE | Unmark favourite |
+| `/portfolios/{id}/quotes` | GET | Rows for the Portfolio pane: ticker, price, daily change, daily change %, stale, favourite |
 
 ## 10.3 Positions
 
 | Endpoint | Method | Purpose |
 |---|---|---|
-| `/positions` | GET | List open positions |
-| `/positions` | POST | Create position |
+| `/portfolios/{id}/positions?status=open\|closed\|all` | GET | Positions with calculated metrics, plus per-currency totals |
+| `/portfolios/{id}/positions` | POST | Create position |
 | `/positions/{id}` | GET | Retrieve position |
-| `/positions/{id}` | PUT | Update/correct position |
-| `/positions/{id}/close` | POST | Close position |
-| `/positions/{id}/partial-close` | POST | Partially close position |
-| `/positions/{id}` | DELETE | Delete erroneous position |
+| `/positions/{id}` | PUT | Edit position |
+| `/positions/{id}/close` | POST | Close position (exit price and date) |
+| `/positions/{id}` | DELETE | Delete position |
 
 ## 10.4 Transactions and cash
 
-| Endpoint | Method | Purpose |
-|---|---|---|
-| `/transactions` | GET | Transaction history |
-| `/transactions` | POST | Create cash transaction |
-| `/cash/balances` | GET | Retrieve cash balances |
-| `/cash/deposit` | POST | Deposit cash |
-| `/cash/withdraw` | POST | Withdraw cash |
+Removed in revision 1.1.
 
 ## 10.5 Strategies
 
@@ -1016,7 +1004,7 @@ Implement:
 - Appropriate HTTP status codes.
 - Input validation.
 - API documentation through FastAPI/OpenAPI.
-- Pagination for historical transactions and signal history where appropriate.
+- Pagination for signal history where appropriate.
 
 Never return Python exception stack traces to the frontend.
 
@@ -1070,9 +1058,12 @@ FRONTEND REFRESHES ALL PANES
 
 The required ticker list must include:
 
-- All portfolio symbols.
-- Open position symbols.
-- Symbols referenced by active strategy panes.
+- Every portfolio's tickers. For `positions` portfolios, these are the tickers of open positions. Closed positions need no current price.
+- Symbols referenced by active strategy panes. Panes are stored in browser localStorage, so the frontend sends these symbols in the request body:
+
+```json
+{"extra_tickers": ["NVDA", "TSLA"]}
+```
 
 Retrieve prices once per unique ticker.
 
@@ -1231,34 +1222,45 @@ Sorting should support:
 - Alphabetical ticker sorting.
 - Numeric ascending/descending.
 - Percentage ascending/descending.
-- Absolute cash value ascending/descending.
+- Absolute monetary value (market value, P&L) ascending/descending.
 
 Sorting should be performed client-side for the initial application.
 
 ## 13.2 Portfolio pane
 
+Configuration: the portfolio to show, which can be of either type.
+
 Display:
 
 | Column | Description |
 |---|---|
+| ★ | Favourite marker. Can be toggled |
 | Ticker | Symbol |
 | Price | Latest price |
 | Daily Change | Absolute change |
 | Daily Change % | Percentage change |
 
-Allow sorting by all relevant columns.
+Allow sorting by all relevant columns. Show a stale indicator on prices whose last refresh failed.
+
+Controls for watchlists:
+
+- Add ticker, using ticker search.
+- Remove ticker.
+- Toggle favourite.
 
 The pane must refresh after global market data refresh.
 
 ## 13.3 Positions pane
 
-Display:
+Configuration: the `positions` portfolio to show, and whether to show closed positions.
+
+Open positions:
 
 | Column | Description |
 |---|---|
 | Ticker | Symbol |
 | Quantity | Current quantity |
-| Entry Price | Average entry price |
+| Entry Price | Entry price |
 | Price | Current market price |
 | Market Value | Current value |
 | Daily Change | Price change |
@@ -1266,18 +1268,28 @@ Display:
 | Unrealised P&L | Absolute profit/loss |
 | Unrealised P&L % | Percentage profit/loss |
 
+Closed positions, shown when the option is enabled:
+
+| Column | Description |
+|---|---|
+| Ticker | Symbol |
+| Quantity | Quantity |
+| Entry Price | Entry price |
+| Exit Price | Exit price |
+| Exit Date | Exit date |
+| Realised P&L | Absolute profit/loss |
+| Realised P&L % | Percentage profit/loss |
+
+Show one totals row per currency (§7.4), and never a single total across currencies.
+
 Provide controls for:
 
 - Add position.
-- Edit/correct position.
-- Increase position.
-- Partially close position.
+- Edit position.
 - Close position.
-- Delete erroneous position.
+- Delete position.
 
-All destructive operations require confirmation.
-
-The entry price should default to the latest available market price.
+Closing and deleting require confirmation. The entry price and exit price default to the latest available market price.
 
 ## 13.4 Strategy pane
 
@@ -1292,9 +1304,8 @@ When creating a strategy pane:
 
 Ticker source options:
 
-- Portfolio.
+- Portfolio: choose any watchlist or positions portfolio.
 - Portfolio favourites.
-- Open positions.
 - Manual selection.
 
 For the initial Mean Reversion strategy, display:
@@ -1361,7 +1372,7 @@ Implement a basic backup mechanism.
 At minimum:
 
 - Back up application state periodically.
-- Back up before significant destructive operations.
+- Back up before significant destructive operations: deleting a portfolio or a position.
 - Retain a configurable number of backups.
 - Provide a script to rebuild derived data.
 
@@ -1406,7 +1417,7 @@ Defaults:
 APP_ENV=development
 APP_HOST=127.0.0.1
 APP_PORT=8000
-DATA_DIR=./data
+DATA_DIR=~/mytradingplatform/data
 MARKET_DATA_PROVIDER=yfinance
 MARKET_DATA_TIMEOUT=30
 CURRENT_PRICE_ARCHIVE_THRESHOLD=100000
@@ -1431,7 +1442,7 @@ Log:
 - Cache hits and misses.
 - Strategy execution.
 - Persistence operations.
-- Transaction operations.
+- Portfolio and position operations.
 - Unexpected exceptions.
 
 The UI must handle:
@@ -1535,51 +1546,51 @@ Acceptance criteria:
 
 Tasks:
 
-1. Implement portfolio models.
+1. Implement portfolio models, including the `watchlist` and `positions` types.
 2. Implement portfolio persistence.
-3. Implement portfolio service.
-4. Implement portfolio API.
-5. Implement ticker management.
-6. Implement favourite management.
-7. Create the default portfolio.
+3. Implement the portfolio service.
+4. Implement ticker validation on add (§6.4).
+5. Implement ticker and favourite management.
+6. Implement the portfolio API, including `/portfolios/{id}/quotes`.
+7. Create the default portfolios.
+8. Remove the obsolete `transactions/` data directory from the directory layout and the backup set.
 
 Acceptance criteria:
 
-- A default portfolio is created on first startup.
-- Tickers can be added and removed.
-- Favourites can be added and removed.
-- Multiple portfolios can be created.
+- The default portfolios are created on first startup.
+- Multiple portfolios of each type can be created.
+- Tickers can be added to and removed from watchlists.
+- Invalid tickers are rejected. When the provider is unavailable, the error says so.
+- Favourites can be added and removed, and are always a subset of the portfolio's tickers.
 - The same ticker can belong to multiple portfolios.
+- Portfolio names are unique, regardless of case.
+- The last remaining portfolio cannot be deleted.
+- Deleting a portfolio takes a backup first.
 - Invalid portfolio operations return meaningful errors.
 
-## Phase 5 – Transactions and positions
+## Phase 5 – Positions
 
 Tasks:
 
-1. Implement transaction models.
-2. Implement transaction persistence.
-3. Implement BUY and SELL operations.
-4. Implement deposit and withdrawal operations.
-5. Implement weighted average cost calculations.
-6. Implement cash balance calculations.
-7. Implement position snapshots.
-8. Implement partial and full closures.
-9. Implement erroneous position deletion.
-10. Implement position and transaction APIs.
+1. Implement position models.
+2. Implement position persistence.
+3. Implement create, edit, close and delete.
+4. Default entry and exit prices to the latest available price.
+5. Implement position calculations: market value, unrealised, realised and daily P&L.
+6. Implement per-currency totals.
+7. Derive the tickers of `positions` portfolios from their open positions.
+8. Implement the positions API.
 
 Acceptance criteria:
 
-- Positions can be opened.
-- Positions can be increased.
-- Positions can be partially closed.
-- Positions can be fully closed.
-- Average entry prices are calculated correctly.
-- Realised P&L is calculated correctly.
-- Unrealised P&L is calculated correctly.
-- Cash balances update correctly.
-- Negative positions are rejected.
-- Negative cash balances are rejected.
-- Position snapshots can be rebuilt from transactions.
+- Positions can be created, edited, closed and deleted.
+- A portfolio can hold only one open position per ticker. A closed ticker can be opened again.
+- Quantity and prices must be positive.
+- Unrealised, realised and daily P&L are calculated correctly.
+- Totals are calculated per currency and never mixed across currencies.
+- Missing current prices result in null values, never made-up ones.
+- Closing or deleting a position updates the portfolio's tickers and favourites.
+- Deleting a position takes a backup first.
 
 ## Phase 6 – Strategy engine
 
@@ -1669,7 +1680,7 @@ Tasks:
 Acceptance criteria:
 
 - Portfolio pane displays current prices.
-- Positions pane displays quantities, valuation and P&L.
+- Positions pane displays quantities, valuation and P&L, per-currency totals and closed history.
 - Strategy pane displays mean, standard deviation, z-score and signal.
 - Sorting works.
 - Profit/loss formatting works.
@@ -1722,23 +1733,22 @@ The application must support the complete workflow:
 
 1. Start the application.
 2. Open the dashboard.
-3. Add ticker symbols to the portfolio.
+3. Add ticker symbols to a watchlist.
 4. Mark favourite symbols.
 5. Refresh market data.
-6. Add positions.
-7. Deposit cash.
-8. View portfolio valuation.
-9. View positions and P&L.
-10. Add a Mean Reversion strategy pane.
-11. Configure its lookback period.
-12. Select positions or portfolio as its source.
-13. Refresh market data.
-14. View calculated strategy metrics and signals.
-15. Move and resize panes.
-16. Close the browser.
-17. Reopen the application.
-18. Restore the previous dashboard layout.
-19. Verify that portfolio and position data remain intact.
+6. Add positions, with quantity and entry price, to a positions portfolio.
+7. View position valuation and P&L, with per-currency totals.
+8. Close a position, and view realised P&L in the closed history.
+9. Add a Mean Reversion strategy pane.
+10. Configure its lookback period.
+11. Select a positions portfolio or a watchlist as its source.
+12. Refresh market data.
+13. View calculated strategy metrics and signals.
+14. Move and resize panes.
+15. Close the browser.
+16. Reopen the application.
+17. Restore the previous dashboard layout.
+18. Verify that portfolio and position data remain intact.
 
 ---
 
@@ -1758,12 +1768,12 @@ Test at least:
 - Missing historical data.
 - Portfolio operations.
 - Favourite management.
+- Ticker validation on add.
+- Position validation: positive values, and one open position per ticker.
 - Position calculations.
-- Weighted average cost.
 - Realised P&L.
-- Unrealised P&L.
-- Cash calculations.
-- Transaction validation.
+- Unrealised and daily P&L.
+- Per-currency totals.
 - Strategy discovery.
 - Strategy configuration validation.
 - Mean reversion calculations.
@@ -1799,9 +1809,9 @@ Do not make external Yahoo Finance calls during automated tests.
 Test complete workflows involving:
 
 - Market data retrieval and caching.
-- Portfolio creation and valuation.
-- Position opening and closing.
-- Cash balance changes.
+- Portfolio creation and ticker management.
+- Position creation, editing, closing and deletion.
+- Position valuation after a market data refresh.
 - Strategy execution.
 - Dashboard data refresh.
 
@@ -1881,13 +1891,10 @@ In particular:
 
 Financial data must be handled carefully.
 
-- Validate transaction inputs.
-- Use decimal arithmetic for monetary accounting.
-- Avoid floating-point accumulation errors.
-- Preserve transaction history.
+- Validate position inputs.
+- Store user-entered quantities and prices as exact decimals.
 - Make writes atomic.
-- Avoid duplicate transactions.
-- Validate currency consistency.
+- Never aggregate values across currencies.
 - Never silently overwrite corrupted or incompatible data.
 
 Where market data is unavailable, display an appropriate error or stale-data status.
@@ -1938,10 +1945,9 @@ Version 1 is considered complete when:
 - [ ] DuckDB can query the cached data.
 - [ ] Portfolio management works.
 - [ ] Favourites work.
-- [ ] Position management works.
-- [ ] Transaction history is maintained.
-- [ ] Cash balances are calculated correctly.
-- [ ] Position valuation works.
+- [ ] Position management works: create, edit, close, delete.
+- [ ] Closed position history is displayed.
+- [ ] Position valuation works, with per-currency totals.
 - [ ] Realised and unrealised P&L are calculated correctly.
 - [ ] Strategies can be discovered dynamically.
 - [ ] Strategy configuration forms are generated dynamically.

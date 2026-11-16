@@ -18,6 +18,7 @@ import sys
 import _bootstrap  # noqa: F401
 
 from app.config import get_settings
+from app.datasets import load_dataset_modules
 from app.logging_config import configure_logging
 from app.persistence.data_dirs import initialise_data_dirs
 from app.persistence.derived import derived_registry
@@ -35,6 +36,7 @@ def main(argv: list[str] | None = None) -> int:
 
     settings = get_settings()
     configure_logging("WARNING")
+    load_dataset_modules()
     try:
         initialise_data_dirs(settings.data_dir)
         store = ParquetStore(settings.data_dir, DataLock(settings.data_dir, settings.persistence_lock_timeout))

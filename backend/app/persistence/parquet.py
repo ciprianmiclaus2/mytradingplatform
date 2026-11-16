@@ -177,6 +177,29 @@ class ParquetStore:
             logger.info("parquet deleted", extra={"file": display, "dataset": dataset.name})
             return True
 
+    def archive(
+        self,
+        dataset: DatasetSchema,
+        new_relative: str | PurePosixPath,
+        relative: str | PurePosixPath | None = None,
+    ) -> bool:
+        """Atomically rename a dataset file (e.g. rotation). Never overwrites a target."""
+        src, display = self._path_for(dataset, relative)
+        dst = self.resolve(new_relative)
+        with self.lock.hold():
+            if not src.exists():
+                return False
+            if dst.exists():
+                raise PersistenceError(f"Archive target {new_relative} already exists")
+            try:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                os.rename(src, dst)
+                fsync_directory(dst.parent)
+            except OSError as exc:
+                raise PersistenceError(f"Failed to archive {display}: {exc}") from exc
+        logger.info("parquet archived", extra={"file": display, "archive": str(new_relative)})
+        return True
+
     def _write_locked(self, path: Path, display: str, dataset: DatasetSchema, table: pa.Table) -> None:
         try:
             write_parquet_atomic(path, table)

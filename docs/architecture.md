@@ -91,3 +91,44 @@ Whenever derived data is written, a SHA-256 fingerprint of its sources is stored
 ### Analytical queries
 
 `persistence.duckdb.query(sql, sources, params)` opens a short-lived in-memory DuckDB connection, so no database file is ever created. It exposes each `ParquetSource` (a file or glob) as a SQL view, runs the query with bound parameters, and returns an Arrow table. A source with no files yet appears as an empty view with its declared schema.
+
+## Market data
+
+```text
+API (api/market_data.py)
+   │
+MarketDataService (market_data/service.py)   cache-first, validation, refresh status
+   │                         │
+   │                 caches (market_data/cache.py) ──► ParquetStore / DuckDB
+   ▼
+BaseMarketDataProvider (market_data/base.py)
+   └── YFinanceProvider (market_data/providers/yfinance_provider.py)
+```
+
+- **Isolation:** only the provider module imports `yfinance`. Everything else uses the models in `market_data/models.py`.
+- **Error contract:** a provider must keep three outcomes separate:
+
+  | Outcome | Provider returns |
+  |---|---|
+  | Data retrieved | A populated result |
+  | No data | `HistoricalPrices(bars=[])` or `NoPriceDataError` |
+  | Request failed | `ProviderError`, never an empty result |
+
+  For yfinance, this works by setting `yf.config.debug.hide_exceptions = False`. Then `YFTickerMissingError` (and its subclasses) and HTTP 404 on quotes mean no data, and every other exception means failure.
+- **History:**
+  - The service works out which date ranges have no coverage, fetches the span they cover in one request, validates every bar (any non-positive or non-finite price rejects the whole response), and writes close files and then coverage.
+  - It then rebuilds the `price_history` view.
+  - The current session is excluded: only dates before today's UTC date count as complete. This is conservative, because every major exchange's session for UTC date D−1 has closed by 00:00 UTC on D.
+- **Current prices:**
+  - `refresh()` de-duplicates tickers and asks the provider once per ticker. yfinance runs up to 4 requests in parallel, all bounded by `MARKET_DATA_TIMEOUT`.
+  - It validates each quote, appends new observations, and records per-ticker state.
+  - A failed ticker keeps its last valid price, reported as `stale`.
+- **Latest-price view:** a DuckDB `QUALIFY row_number()` query over the active current-price file.
+
+### Adding a market data provider
+
+1. Subclass `BaseMarketDataProvider` in `market_data/providers/<name>_provider.py`. Implement `search_ticker`, `get_historical_prices` and `get_current_price`, and optionally a faster `get_current_prices`. Return only application models, and follow the error contract above.
+2. Register a factory for it in `market_data/providers/registry.py`.
+3. Set `MARKET_DATA_PROVIDER=<name>`.
+
+Historical coverage is recorded per provider, so switching provider fetches fresh history. Nothing else in the application changes.

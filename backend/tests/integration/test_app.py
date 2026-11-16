@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from app.config import Settings
 from app.main import create_app
 from app.persistence.data_dirs import DATA_SCHEMA_VERSION, DATA_SUBDIRECTORIES
+from tests.fakes import FakeProvider
 
 
 def test_health_returns_ok(client: TestClient) -> None:
@@ -52,7 +53,7 @@ def test_cors_rejects_unknown_origin(client: TestClient) -> None:
 
 
 def test_unhandled_exception_hides_stack_trace(settings: Settings) -> None:
-    app = create_app(settings)
+    app = create_app(settings, provider=FakeProvider())
     router = APIRouter()
 
     @router.get("/boom")
@@ -75,7 +76,7 @@ def test_unhandled_exception_hides_stack_trace(settings: Settings) -> None:
 
 
 def test_validation_errors_use_error_envelope(settings: Settings) -> None:
-    app = create_app(settings)
+    app = create_app(settings, provider=FakeProvider())
     router = APIRouter()
 
     @router.get("/echo")
@@ -95,7 +96,7 @@ def test_validation_errors_use_error_envelope(settings: Settings) -> None:
 def test_persistence_errors_map_to_clear_responses(settings: Settings) -> None:
     from app.persistence.errors import IncompatibleSchemaError, LockTimeoutError
 
-    app = create_app(settings)
+    app = create_app(settings, provider=FakeProvider())
     router = APIRouter()
 
     @router.get("/incompatible")
@@ -122,7 +123,7 @@ def test_persistence_errors_map_to_clear_responses(settings: Settings) -> None:
 
 
 def test_startup_takes_backup_and_exposes_persistence(settings: Settings, data_dir: Path) -> None:
-    with TestClient(create_app(settings)) as c:
+    with TestClient(create_app(settings, provider=FakeProvider())) as c:
         assert c.app.state.persistence.store.data_dir == data_dir.resolve()  # type: ignore[attr-defined]
     assert len([p for p in (data_dir / "backups").iterdir() if p.name.endswith("-startup")]) == 1
 
@@ -135,5 +136,5 @@ def test_startup_fails_on_incompatible_data_schema(settings: Settings, data_dir:
     (data_dir / "metadata").mkdir(parents=True)
     (data_dir / "metadata" / "schema_version.json").write_text(json.dumps({"schema_version": 99}))
     with pytest.raises(Exception, match="migration is required"):
-        with TestClient(create_app(settings)):
+        with TestClient(create_app(settings, provider=FakeProvider())):
             pass

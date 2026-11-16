@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.main import create_app
+from tests.fakes import FakeProvider
 
 _ENV_VARS = (
     "APP_ENV",
@@ -41,6 +42,11 @@ def settings(data_dir: Path) -> Settings:
 
 
 @pytest.fixture
-def client(settings: Settings) -> Iterator[TestClient]:
-    with TestClient(create_app(settings), raise_server_exceptions=False) as c:
+def fake_provider() -> FakeProvider:
+    return FakeProvider()
+
+
+@pytest.fixture
+def client(settings: Settings, fake_provider: FakeProvider) -> Iterator[TestClient]:
+    with TestClient(create_app(settings, provider=fake_provider), raise_server_exceptions=False) as c:
         yield c

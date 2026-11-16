@@ -10,8 +10,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
-from app.api import health
+from app.api import health, market_data
 from app.config import Settings, get_settings
+from app.datasets import load_dataset_modules
+from app.market_data.base import BaseMarketDataProvider
+from app.market_data.providers.registry import create_provider
+from app.market_data.service import MarketDataService
 from app.logging_config import configure_logging
 from app.persistence import open_persistence
 from app.schemas.errors import register_error_handlers
@@ -21,11 +25,17 @@ logger = logging.getLogger(__name__)
 API_PREFIX = "/api"
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    *,
+    provider: BaseMarketDataProvider | None = None,
+) -> FastAPI:
+    """Build the app. ``provider`` overrides the configured provider (tests)."""
     settings = settings or get_settings()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        load_dataset_modules()
         persistence = open_persistence(
             settings.data_dir,
             lock_timeout=settings.persistence_lock_timeout,
@@ -34,6 +44,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         app.state.persistence = persistence
         app.state.data_info = persistence.info
+        app.state.market_data = MarketDataService(
+            provider or create_provider(settings.market_data_provider, settings.market_data_timeout),
+            persistence.store,
+            persistence.derived,
+            archive_threshold=settings.current_price_archive_threshold,
+        )
         logger.info(
             "application startup",
             extra={
@@ -66,6 +82,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     register_error_handlers(app)
 
     app.include_router(health.router, prefix=API_PREFIX)
+    app.include_router(market_data.router, prefix=API_PREFIX)
     return app
 
 

@@ -2,7 +2,7 @@
 
 A locally hosted, single-user trading dashboard. It monitors a portfolio of ticker symbols, tracks positions and cash, and runs configurable trading strategies such as mean reversion. All data is stored in local Parquet files. It never places real trades.
 
-> **Status:** Phases 1–2 (project foundation, persistence foundation) are complete. See
+> **Status:** Phases 1–3 (project foundation, persistence, market data) are complete. See
 > [docs/MyTradingPlatform_v1_ImplementationPlan.md](docs/MyTradingPlatform_v1_ImplementationPlan.md)
 > for the full V1 plan.
 
@@ -130,9 +130,11 @@ The backend creates this layout on startup if it doesn't already exist:
 ```text
 $DATA_DIR/
 ├── market_data/
-│   ├── close_prices/   one Parquet file per trading date
-│   ├── current/        current-price time series (rotated)
-│   └── history/        rebuildable consolidated history
+│   ├── close_prices/        one Parquet file per trading date (YYYYMMDD.parquet), all tickers
+│   ├── coverage.parquet     date ranges already fetched per ticker
+│   ├── current/             current-price time series; current.YYYYMMDDHHMMSS.parquet archives
+│   ├── history/             history.parquet: rebuildable consolidated view
+│   └── refresh_status.json  last refresh result and per-ticker refresh state
 ├── portfolios/
 ├── positions/
 ├── transactions/
@@ -166,6 +168,7 @@ backend/.venv/bin/python scripts/backup_data.py restore <name>   # stop the back
 
 backend/.venv/bin/python scripts/rebuild_derived.py --list       # derived data and whether it's stale
 backend/.venv/bin/python scripts/rebuild_derived.py              # rebuild everything
+backend/.venv/bin/python scripts/rebuild_history.py              # rebuild market_data/history/history.parquet
 ```
 
 A backup is a timestamped folder under `backups/` with a checksum manifest. It covers portfolios, positions, transactions, strategies and metadata, but not market data, which can be downloaded again. Restoring always backs up the current state first.
@@ -181,7 +184,7 @@ cd frontend && npm run build       # type-check + production build
 cd frontend && npm run lint
 ```
 
-Automated tests never call Yahoo Finance. The market data tests use mocked providers.
+Automated tests never call Yahoo Finance. The market data tests use a fake in-memory provider (`tests/fakes.py`) and stubbed yfinance objects.
 
 ## Troubleshooting
 
@@ -191,6 +194,8 @@ Automated tests never call Yahoo Finance. The market data tests use mocked provi
 | Backend exits with "schema version … migration is required" | `DATA_DIR` holds data from an incompatible version. Point `DATA_DIR` elsewhere, or migrate the data |
 | Backend exits with "… is incompatible" or "… cannot be read" | A data file has the wrong schema or is damaged. Restore it with `scripts/backup_data.py restore <name>`, or rebuild derived data with `scripts/rebuild_derived.py` |
 | API returns `persistence_lock_timeout` | A maintenance script is holding the write lock. Wait for it to finish |
+| Prices show as stale | The last refresh failed for that ticker. The last valid price stays on screen; see `GET /api/market-data/status` |
+| Ticker search returns 502 | Yahoo Finance is unreachable or rate-limiting. Try again later |
 | Backend exits with "Cannot create data directory" | `DATA_DIR` isn't writable, or part of its path is a file |
 | Browser shows a CORS error when `VITE_API_BASE_URL` is an absolute URL | Add the frontend origin to `CORS_ORIGINS` |
 | `node: command not found` in a script or IDE terminal | Node was installed with nvm. Run `source ~/.nvm/nvm.sh` or open a login shell |
