@@ -2,7 +2,7 @@
 
 V1 uses a single write lock for all application state. Writes are rare in a
 single-user application, and one lock makes multi-file updates (for example a
-transaction plus the position snapshot it affects) trivially consistent.
+portfolio plus the positions that belong to it) trivially consistent.
 
 The lock combines:
 

@@ -9,3 +9,4 @@ from __future__ import annotations
 
 def load_dataset_modules() -> None:
     import app.market_data.cache  # noqa: F401
+    import app.portfolio.repository  # noqa: F401

@@ -6,7 +6,7 @@ My Trading Platform runs locally as a modular monolith: one FastAPI backend proc
 
 ```text
 api/            HTTP routes: request/response models only, no business logic
-<domain>/       services: portfolio, positions, transactions, market_data, strategies
+<domain>/       services: portfolio, positions, market_data, strategies
 persistence/    the only code that reads or writes files in DATA_DIR
 schemas/        shared API models and the error envelope
 ```
@@ -22,6 +22,7 @@ schemas/        shared API models and the error envelope
 | `persistence/duckdb.py` | Read-only analytical SQL over Parquet files |
 | `persistence/derived.py` | Rebuildable derived data (materialised views) and staleness detection |
 | `persistence/backup.py` | `BackupManager`: create, prune, verify and restore backups |
+| `persistence/jsonfile.py` | Small JSON status files, written atomically under the lock |
 | `persistence/__init__.py` | `open_persistence()`: the startup sequence |
 
 ### Datasets and schemas
@@ -64,7 +65,7 @@ Because there is only one lock, an update that touches several files is consiste
 
 ### Derived data
 
-Some data is computed entirely from other files, for example `positions.parquet` from the transaction ledger, or `history.parquet` from the daily close-price files. Each such dataset is registered as a `DerivedDataset` with:
+Some data is computed entirely from other files, for example `history.parquet` from the daily close-price files. Each such dataset is registered as a `DerivedDataset` with:
 
 - its source files or globs;
 - a function that builds it from those sources.
@@ -73,7 +74,7 @@ Whenever derived data is written, a SHA-256 fingerprint of its sources is stored
 
 ### Backups
 
-- **Contents:** each backup is `backups/<UTC timestamp>Z-<reason>/` with a `manifest.json` of SHA-256 checksums. It covers the `portfolios`, `positions`, `transactions`, `strategies` and `metadata` folders. Market data is excluded because it can be downloaded again.
+- **Contents:** each backup is `backups/<UTC timestamp>Z-<reason>/` with a `manifest.json` of SHA-256 checksums. It covers the `portfolios`, `positions`, `strategies` and `metadata` folders. Market data is excluded because it can be downloaded again.
 - **Creation:** backups are assembled in a temporary staging folder and then renamed into place, so a half-written backup never looks complete. Only the newest `BACKUP_RETENTION_COUNT` backups are kept.
 - **Restoring:** the checksums are verified first, the current state is backed up, and then each file is replaced atomically. A backup made with a different data schema version is refused.
 - **When backups are taken:** on startup, but skipped if nothing changed since the last backup. Services will also take one before destructive operations.
@@ -132,3 +133,19 @@ BaseMarketDataProvider (market_data/base.py)
 3. Set `MARKET_DATA_PROVIDER=<name>`.
 
 Historical coverage is recorded per provider, so switching provider fetches fresh history. Nothing else in the application changes.
+
+## Portfolios
+
+```text
+API (api/portfolios.py) ─► PortfolioService (portfolio/service.py) ─► PortfolioRepository ─► ParquetStore
+                                   │
+                                   └─► MarketDataService.ensure_price()   ticker check on add
+```
+
+- **Read-modify-write:** every change goes through `PortfolioRepository.modify()`, which holds the data lock. A rule violation raised inside the change aborts it and leaves the file untouched.
+- **Ticker checks happen before the lock.** Checking a new ticker may call the provider, so it runs before the lock is taken. The duplicate check is repeated under the lock.
+- **Hooks for positions (Phase 5):**
+  - `PortfolioService.position_tickers(portfolio_id)` supplies the tickers of open positions.
+  - `on_deleted` hooks run under the lock when a portfolio is deleted, to remove its positions.
+  - `prune_favourites()` drops favourites that are no longer tickers, e.g. after a position closes.
+- **Refresh support:** `all_tickers()` returns the unique tickers across all portfolios, for the market data refresh (Phase 10).

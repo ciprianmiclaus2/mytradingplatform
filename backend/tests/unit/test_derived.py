@@ -152,7 +152,7 @@ def test_startup_refuses_incompatible_registered_dataset(
 
 def test_startup_removes_stale_temp_files(data_dir: Path) -> None:
     p = _open(data_dir, DerivedRegistry(), backup_on_startup=False)
-    leftover = p.store.data_dir / "transactions" / ".tmp-x.parquet.1.tmp"
+    leftover = p.store.data_dir / "positions" / ".tmp-x.parquet.1.tmp"
     leftover.write_bytes(b"partial")
     _open(data_dir, DerivedRegistry(), backup_on_startup=False)
     assert not leftover.exists()

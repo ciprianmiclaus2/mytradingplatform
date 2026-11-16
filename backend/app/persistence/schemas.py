@@ -5,8 +5,8 @@ a version and (optionally) unique key columns. The name and version are
 stored in each Parquet file's metadata so incompatible files are detected on
 read instead of being silently misinterpreted or overwritten.
 
-Entity modules register their datasets with ``register_dataset`` (portfolios
-in Phase 4, transactions/positions in Phase 5, ...).
+Entity modules register their datasets with ``register_dataset`` (market data,
+portfolios, positions, ...).
 """
 
 from __future__ import annotations

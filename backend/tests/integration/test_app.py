@@ -101,7 +101,7 @@ def test_persistence_errors_map_to_clear_responses(settings: Settings) -> None:
 
     @router.get("/incompatible")
     def incompatible() -> None:
-        raise IncompatibleSchemaError("transactions/transactions.parquet is incompatible")
+        raise IncompatibleSchemaError("positions/positions.parquet is incompatible")
 
     @router.get("/locked")
     def locked() -> None:
@@ -115,7 +115,7 @@ def test_persistence_errors_map_to_clear_responses(settings: Settings) -> None:
     assert r1.status_code == 500
     assert r1.json()["error"] == {
         "code": "incompatible_schema",
-        "message": "transactions/transactions.parquet is incompatible",
+        "message": "positions/positions.parquet is incompatible",
         "details": None,
     }
     assert r2.status_code == 503

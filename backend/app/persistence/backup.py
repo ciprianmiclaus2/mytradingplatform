@@ -28,7 +28,7 @@ from app.persistence.parquet import TEMP_PREFIX, fsync_directory
 logger = logging.getLogger(__name__)
 
 BACKUP_DIR = "backups"
-BACKED_UP_DIRS: tuple[str, ...] = ("portfolios", "positions", "transactions", "strategies", "metadata")
+BACKED_UP_DIRS: tuple[str, ...] = ("portfolios", "positions", "strategies", "metadata")
 MANIFEST = "manifest.json"
 _NAME_RE = re.compile(r"^\d{8}T\d{12}Z-[a-z0-9-]+$")
 _STAGING_PREFIX = f"{TEMP_PREFIX}backup-"

@@ -47,6 +47,11 @@ class MarketDataProviderUnavailable(AppError):
     code = "market_data_provider_unavailable"
 
 
+class InvalidTickerError(AppError):
+    status_code = 422
+    code = "invalid_ticker"
+
+
 def _utcnow() -> datetime:
     return datetime.now(UTC)
 
@@ -205,20 +210,12 @@ class MarketDataService:
             last_error=state.last_error if failed_since else None,
         )
 
-    def refresh(self, tickers: list[str]) -> RefreshResult:
-        """Fetch the latest price once per unique ticker and update the cache.
-
-        Partial success is normal: a failed ticker keeps its previous valid
-        price (marked stale) and does not affect the others.
-        """
-        unique = list(dict.fromkeys(tickers))
-        started = self.clock()
-        logger.info("market data refresh started", extra={"tickers": len(unique)})
-
-        responses = self.provider.get_current_prices(unique) if unique else {}
+    def _fetch_quotes(self, tickers: list[str]) -> tuple[list[PriceQuote], list[TickerError]]:
+        """Ask the provider once per ticker; validate each quote."""
+        responses = self.provider.get_current_prices(tickers) if tickers else {}
         quotes: list[PriceQuote] = []
         errors: list[TickerError] = []
-        for ticker in unique:
+        for ticker in tickers:
             outcome = responses.get(ticker) or ProviderError("No response from provider", ticker)
             if isinstance(outcome, PriceQuote):
                 if outcome.ticker != ticker or not _valid_price(outcome.price) or not outcome.currency:
@@ -230,7 +227,19 @@ class MarketDataService:
             else:
                 code = "no_data" if isinstance(outcome, NoPriceDataError) else "provider_error"
                 errors.append(TickerError(ticker=ticker, code=code, message=str(outcome)))
+        return quotes, errors
 
+    def refresh(self, tickers: list[str]) -> RefreshResult:
+        """Fetch the latest price once per unique ticker and update the cache.
+
+        Partial success is normal: a failed ticker keeps its previous valid
+        price (marked stale) and does not affect the others.
+        """
+        unique = list(dict.fromkeys(tickers))
+        started = self.clock()
+        logger.info("market data refresh started", extra={"tickers": len(unique)})
+
+        quotes, errors = self._fetch_quotes(unique)
         self.current_cache.append(quotes)
         completed = self.clock()
 
@@ -249,7 +258,7 @@ class MarketDataService:
             tickers_failed=len(errors),
             errors=errors,
         )
-        self._save_refresh_status(result, [q.ticker for q in quotes], errors)
+        self._save_status([q.ticker for q in quotes], errors, completed, result)
         log = logger.warning if errors else logger.info
         log(
             "market data refresh completed",
@@ -257,25 +266,56 @@ class MarketDataService:
         )
         return result
 
-    def _save_refresh_status(self, result: RefreshResult, updated: list[str], errors: list[TickerError]) -> None:
+    def ensure_price(self, ticker: str) -> LatestPrice:
+        """Return a price for ``ticker``, fetching one if none is cached (plan §6.4).
+
+        Raises ``InvalidTickerError`` if the provider has no data for the ticker,
+        or ``MarketDataProviderUnavailable`` if it cannot be reached and no
+        price is cached. A fetched quote is stored in the current-price cache.
+        """
+        cached = self.get_latest_prices([ticker])[ticker]
+        if cached is not None:
+            return cached
+        quotes, errors = self._fetch_quotes([ticker])
+        if quotes:
+            self.current_cache.append(quotes)
+        self._save_status([q.ticker for q in quotes], errors, self.clock(), None)
+        if errors:
+            err = errors[0]
+            if err.code == "provider_error":
+                raise MarketDataProviderUnavailable(
+                    f"Cannot verify {ticker}: market data provider unavailable, please try again ({err.message})"
+                )
+            raise InvalidTickerError(f"Unknown ticker {ticker}: no price available from {self.provider.name}")
+        price = self.get_latest_prices([ticker])[ticker]
+        assert price is not None
+        return price
+
+    def _save_status(
+        self,
+        updated: list[str],
+        errors: list[TickerError],
+        at: datetime,
+        result: RefreshResult | None,
+    ) -> None:
+        """Record per-ticker refresh state; ``result`` also updates the last refresh."""
         with self.store.lock.hold():
             doc = self.refresh_status.load()
             states = {t: TickerRefreshState.model_validate(s) for t, s in (doc.get("tickers") or {}).items()}
             for ticker in updated:
-                states[ticker] = TickerRefreshState(
-                    last_attempt_at=result.completed_at, last_success_at=result.completed_at, last_error=None
-                )
+                states[ticker] = TickerRefreshState(last_attempt_at=at, last_success_at=at, last_error=None)
             for err in errors:
                 prev = states.get(err.ticker)
                 states[err.ticker] = TickerRefreshState(
-                    last_attempt_at=result.completed_at,
+                    last_attempt_at=at,
                     last_success_at=prev.last_success_at if prev else None,
                     last_error=err.message,
                 )
             doc["tickers"] = {t: s.model_dump(mode="json") for t, s in sorted(states.items())}
-            doc["last_refresh"] = result.model_dump(mode="json")
-            if result.tickers_updated:
-                doc["last_successful_refresh_at"] = result.completed_at.isoformat()
+            if result is not None:
+                doc["last_refresh"] = result.model_dump(mode="json")
+                if result.tickers_updated:
+                    doc["last_successful_refresh_at"] = result.completed_at.isoformat()
             self.refresh_status.save(doc)
 
     def status(self) -> MarketDataStatus:

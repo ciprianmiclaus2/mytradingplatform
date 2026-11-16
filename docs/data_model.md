@@ -22,6 +22,7 @@ All persisted data lives under `DATA_DIR`. See the [README](../README.md#data-di
 | `close_price_coverage` | `market_data/coverage.parquet` | 1 | `ticker, provider, start_date` | Date ranges already fetched |
 | `current_prices` | `market_data/current/current.parquet` (plus archives) | 1 | `ticker, timestamp` | Current-price time series |
 | `price_history` | `market_data/history/history.parquet` | 1 | `ticker, trading_date` | Derived from `close_prices`. Rebuildable |
+| `portfolios` | `portfolios/portfolios.parquet` | 1 | `id` | Watchlists and positions portfolios |
 
 ### close_prices / price_history
 
@@ -80,3 +81,15 @@ This file stores:
 - per-ticker `last_attempt_at`, `last_success_at` and `last_error`.
 
 A price is reported `stale` when its ticker's most recent refresh attempt failed.
+
+### portfolios
+
+| Column | Type | Null | Description |
+|---|---|---|---|
+| id | string | no | UUID (hex) |
+| name | string | no | 1–100 characters. Unique regardless of case. Runs of spaces are collapsed to one |
+| description | string | no | Up to 500 characters. May be empty |
+| type | string | no | `watchlist` or `positions`. Never changes |
+| tickers | list&lt;string&gt; | no | Watchlists: tickers in the order they were added. Positions portfolios: always empty, because their tickers come from open positions |
+| favourites | list&lt;string&gt; | no | Always a subset of the portfolio's tickers |
+| created_at, updated_at | timestamp[us, UTC] | no | |

@@ -1,7 +1,6 @@
 """Rebuildable derived datasets (materialised views).
 
-A derived dataset (e.g. ``positions.parquet`` from the transaction ledger, or
-``history.parquet`` from the daily close-price files) is computed entirely from
+A derived dataset (e.g. ``history.parquet`` from the daily close-price files) is computed entirely from
 its source files. When it is written, a fingerprint of the sources is stored
 in its metadata. If the sources later change without the derived file being
 updated (e.g. a crash between the two writes), the fingerprints no longer
@@ -30,7 +29,7 @@ FINGERPRINT_KEY = "x_source_fingerprint"
 @dataclass(frozen=True)
 class DerivedDataset:
     output: DatasetSchema  # must be a single-file dataset
-    # Data-relative paths or globs of the source files, e.g. "transactions/transactions.parquet".
+    # Data-relative paths or globs of the source files, e.g. "market_data/close_prices/*.parquet".
     sources: tuple[str, ...]
     build: Callable[[ParquetStore], pa.Table]
 

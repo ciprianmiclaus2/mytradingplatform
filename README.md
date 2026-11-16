@@ -1,8 +1,8 @@
 # My Trading Platform
 
-A locally hosted, single-user trading dashboard. It monitors a portfolio of ticker symbols, tracks positions and cash, and runs configurable trading strategies such as mean reversion. All data is stored in local Parquet files. It never places real trades.
+A locally hosted, single-user signal-generation dashboard. It monitors watchlists of ticker symbols, displays held positions with their P&L, and runs configurable strategies such as mean reversion. All data is stored in local Parquet files. It never places real trades and does no accounting.
 
-> **Status:** Phases 1–3 (project foundation, persistence, market data) are complete. See
+> **Status:** Phases 1–4 (project foundation, persistence, market data, portfolios) are complete. See
 > [docs/MyTradingPlatform_v1_ImplementationPlan.md](docs/MyTradingPlatform_v1_ImplementationPlan.md)
 > for the full V1 plan.
 
@@ -14,7 +14,7 @@ Browser (React + Vite, :5173)
    ▼
 FastAPI backend (:8000)
    ├── api/           HTTP routes only, no business logic
-   ├── services       portfolio, positions, transactions, market data, strategies
+   ├── services       portfolio, positions, market data, strategies
    └── persistence/   Parquet files + DuckDB queries (DATA_DIR)
 ```
 
@@ -136,8 +136,8 @@ $DATA_DIR/
 │   ├── history/             history.parquet: rebuildable consolidated view
 │   └── refresh_status.json  last refresh result and per-ticker refresh state
 ├── portfolios/
+│   └── portfolios.parquet   watchlists and positions portfolios
 ├── positions/
-├── transactions/
 ├── strategies/
 ├── backups/
 └── metadata/
@@ -171,7 +171,7 @@ backend/.venv/bin/python scripts/rebuild_derived.py              # rebuild every
 backend/.venv/bin/python scripts/rebuild_history.py              # rebuild market_data/history/history.parquet
 ```
 
-A backup is a timestamped folder under `backups/` with a checksum manifest. It covers portfolios, positions, transactions, strategies and metadata, but not market data, which can be downloaded again. Restoring always backs up the current state first.
+A backup is a timestamped folder under `backups/` with a checksum manifest. It covers portfolios, positions, strategies and metadata, but not market data, which can be downloaded again. Restoring always backs up the current state first.
 
 The data directory is never served over HTTP.
 
