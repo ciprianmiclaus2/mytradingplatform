@@ -1,4 +1,6 @@
-import { PlaceholderPane } from './PlaceholderPane'
+import { PortfolioPane } from './PortfolioPane'
+import { PositionsPane } from './positions/PositionsPane'
+import { StrategyPane } from './strategy/StrategyPane'
 import type { PaneDefinition } from './types'
 
 /**
@@ -10,7 +12,7 @@ const definitions: PaneDefinition[] = [
     type: 'portfolio',
     title: 'Portfolio',
     description: 'Prices and daily change for a watchlist',
-    component: PlaceholderPane,
+    component: PortfolioPane,
     defaultSize: { w: 6, h: 10 },
     minSize: { w: 3, h: 4 },
     defaultConfig: () => ({}),
@@ -19,17 +21,17 @@ const definitions: PaneDefinition[] = [
     type: 'positions',
     title: 'Positions',
     description: 'Positions with valuation and P&L',
-    component: PlaceholderPane,
+    component: PositionsPane,
     defaultSize: { w: 6, h: 10 },
     minSize: { w: 4, h: 4 },
-    defaultConfig: () => ({}),
+    defaultConfig: () => ({ showClosed: false }),
   },
   {
     type: 'strategy',
     title: 'Strategy',
     description: 'Strategy metrics and signals',
-    component: PlaceholderPane,
-    defaultSize: { w: 12, h: 10 },
+    component: StrategyPane,
+    defaultSize: { w: 12, h: 12 },
     minSize: { w: 4, h: 4 },
     defaultConfig: () => ({}),
   },

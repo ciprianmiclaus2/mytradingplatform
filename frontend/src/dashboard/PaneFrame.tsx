@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { getPaneDefinition } from '../panes/registry'
+import { PaneErrorBoundary } from './PaneErrorBoundary'
 import type { Pane } from './types'
 
 interface Props {
@@ -45,7 +46,9 @@ export function PaneFrame({ pane, minimised, onRemove, onToggleMinimise, onConfi
       {!minimised && (
         <div className="min-h-0 flex-1 overflow-auto">
           {Body ? (
-            <Body pane={pane} onConfigChange={onConfigChange} />
+            <PaneErrorBoundary>
+              <Body pane={pane} onConfigChange={onConfigChange} />
+            </PaneErrorBoundary>
           ) : (
             <p className="p-4 text-sm text-red-600">Unknown pane type “{pane.type}”.</p>
           )}

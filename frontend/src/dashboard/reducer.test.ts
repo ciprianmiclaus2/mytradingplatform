@@ -19,7 +19,7 @@ describe('dashboardReducer', () => {
     expect(state.panes.map((p) => p.title)).toEqual(['Strategy', 'Strategy 2', 'Portfolio'])
     expect(new Set(state.panes.map((p) => p.id)).size).toBe(3)
     expect(state.panes.every((p) => /^pane-[A-Za-z0-9-]+$/.test(p.id))).toBe(true)
-    expect(state.layouts.map((l) => l.y)).toEqual([0, 10, 20])
+    expect(state.layouts.map((l) => l.y)).toEqual([0, 12, 24])
   })
 
   it('ignores unknown pane types', () => {

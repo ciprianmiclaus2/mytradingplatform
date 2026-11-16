@@ -11,10 +11,14 @@ interface Props {
   label: string
   items: MenuItem[]
   align?: 'left' | 'right'
+  /** Accessible name when the visible label is a symbol. */
+  ariaLabel?: string
+  /** Small button without the ▾ marker (pane toolbars). */
+  compact?: boolean
 }
 
 /** Simple dropdown menu; closes on selection, outside click or Escape. */
-export function Menu({ label, items, align = 'left' }: Props) {
+export function Menu({ label, items, align = 'left', ariaLabel, compact = false }: Props) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const menuId = useId()
@@ -42,16 +46,17 @@ export function Menu({ label, items, align = 'left' }: Props) {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={menuId}
+        aria-label={ariaLabel}
         onClick={() => setOpen((v) => !v)}
-        className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm hover:bg-slate-50"
+        className={`rounded border border-slate-300 bg-white text-sm hover:bg-slate-50 ${compact ? 'px-2 py-1' : 'px-3 py-1.5'}`}
       >
-        {label} ▾
+        {compact ? label : `${label} ▾`}
       </button>
       {open && (
         <ul
           id={menuId}
           role="menu"
-          aria-label={label}
+          aria-label={ariaLabel ?? label}
           className={`absolute z-40 mt-1 min-w-56 rounded-md border border-slate-200 bg-white py-1 shadow-lg ${align === 'right' ? 'right-0' : 'left-0'}`}
         >
           {items.map((item) => (

@@ -2,7 +2,7 @@
 
 A locally hosted, single-user signal-generation dashboard. It monitors watchlists of ticker symbols, displays held positions with their P&L, and runs configurable strategies such as mean reversion. All data is stored in local Parquet files. It never places real trades and does no accounting.
 
-> **Status:** Phases 1–8 are complete. The backend is done, and the frontend dashboard shell is in place: panes can be added, moved, resized, minimised and removed, and the layout is saved in the browser. The pane contents come in Phase 9. See
+> **Status:** Phases 1–9 are complete. The backend is done, and the dashboard has working Portfolio, Positions and Strategy panes. The global Refresh button comes in Phase 10; until then, prices are fetched when a ticker is added. See
 > [docs/MyTradingPlatform_v1_ImplementationPlan.md](docs/MyTradingPlatform_v1_ImplementationPlan.md)
 > for the full V1 plan.
 
@@ -101,6 +101,14 @@ The dashboard is a grid of panes.
 - **Move** a pane by dragging its title bar. **Resize** it from its bottom-right corner.
 - **–** minimises a pane to its title bar. **×** removes it, after you confirm.
 - **Menu → Reset layout** restores the default panes.
+
+**Panes:**
+
+- **Portfolio:** prices, daily change and daily change % for any portfolio. Use **⋯** to create, rename or delete portfolios. For a watchlist, type a symbol or company name in **Add ticker…** and pick a suggestion or press Enter; **★** marks favourites, and **×** removes a ticker. ⚠ marks a price whose last refresh failed (the last known price is shown).
+- **Positions:** open positions with market value, daily P&L and unrealised P&L, with one totals row per currency. **+ Add position**, **Edit**, **Close** and **Delete** manage them. The entry and exit prices default to the latest market price. Tick **Show closed** to see closed positions and realised P&L.
+- **Strategy:** choose a strategy, its settings (the form is built from the strategy's own parameter list), and its tickers: a portfolio, a portfolio's favourites, or a typed list. The pane shows the strategy's metrics and the BUY (green) or SELL (red) signal per ticker; **Settings** changes the configuration, and **↻** recalculates. Tickers without enough history show a status rather than numbers.
+
+Click a column header to sort; click again to reverse. Each pane's settings (selected portfolio, show closed, strategy configuration) are saved with the layout.
 
 The layout is saved automatically in your browser's `localStorage`, under the key `my-trading-platform-layout`, and is restored when you reopen the page. A saved layout that can't be read is replaced by the default layout, and a notice tells you so.
 

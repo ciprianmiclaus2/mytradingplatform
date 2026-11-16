@@ -246,10 +246,30 @@ App
 | `dashboard/useDashboard.ts` | Reducer plus automatic saving after every change |
 | `dashboard/grid.ts` | Grid geometry: 12 columns, 32px rows, 12px margins, minimised height of 1 row |
 | `panes/registry.ts` | Pane types: title, description, component, default and minimum size, default config |
+| `components/DataGrid.tsx` | Shared sortable table with loading, error, empty and footer (totals) rows |
+| `hooks/useApiData.ts` | Loads API data by key; keeps the last good data while reloading and after an error |
+| `hooks/dataVersion.ts` | "Backend data changed" signal; every pane reloads when it changes |
+| `panes/PortfolioPane.tsx` | Quotes for a portfolio; add/remove tickers, favourites |
+| `panes/positions/` | Positions pane, add/edit/close dialogs, decimal validation |
+| `panes/strategy/` | Strategy pane, setup view, schema-driven settings form, ticker sources |
 
 ### Pane types
 
 The registry is the only place that knows the pane types. Adding a type means adding one registry entry with a component that receives `PaneProps {pane, onConfigChange}`. The menus, grid and storage are generic.
+
+### Pane data and configuration
+
+- Each pane reads its configuration with checked helpers (`panes/config.ts`), because it comes from localStorage. Bad values fall back to defaults, and a portfolio that no longer exists shows a message instead of an error.
+- Pane configurations: Portfolio `{portfolioId}`, Positions `{portfolioId, showClosed}`, Strategy `{strategy, params, source}`, where `source` is `{kind: "portfolio" | "favourites", portfolioId}` or `{kind: "manual", tickers}`.
+- After any change (ticker added, position closed, portfolio renamed) the pane calls `notifyDataChanged()`, so other panes showing the same data reload. Phase 10's Refresh will use the same signal.
+- Reloads keep the last good data on screen; an error is shown above it with a Retry button.
+- Every pane body is wrapped in an error boundary, so a rendering failure in one pane does not affect the others.
+- All calculations stay in the backend. The frontend only formats numbers (percent values arrive in percent units) and colours gains green and losses red.
+- Sorting is client-side. Empty values sort last in both directions; text sorts case-insensitively.
+
+### Strategy settings forms
+
+The form is generated from the strategy's parameter list (`GET /strategies`), with no strategy-specific code. It supports integer, number, string (free text, or a list of choices) and boolean parameters, with minimum, maximum, default and description. The frontend checks types and ranges. Before saving, it validates the settings with a run over no tickers, so the backend's cross-field rules (such as buy threshold below sell threshold) are reported against the right field. Result columns come from the strategy's `outputs`, so a new strategy needs no frontend changes.
 
 ### Pane ids
 

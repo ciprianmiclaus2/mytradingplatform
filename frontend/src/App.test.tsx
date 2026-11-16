@@ -1,20 +1,26 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import { STORAGE_KEY } from './dashboard/storage'
+import { health, meanReversionSchema, portfolio, quote, tickerResult } from './test/fixtures'
+import { apiError, mockApi, type MockRequest } from './test/mockApi'
 
-const health = {
-  status: 'ok',
-  version: '0.1.0',
-  environment: 'development',
-  data_schema_version: 1,
-  market_data_provider: 'yfinance',
-  server_time: '2026-11-16T12:00:00Z',
-}
+const watchlist = portfolio({ tickers: ['AAPL', 'MSFT'], favourites: ['MSFT'] })
+const positionsList = portfolio({ id: 'pf-pos', name: 'Main Positions', type: 'positions' })
 
 const healthy = () =>
-  vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify(health), { status: 200 }))
+  mockApi({
+    'GET /health': health,
+    'GET /portfolios': [watchlist, positionsList],
+    'GET /portfolios/pf-main/quotes': { portfolio_id: 'pf-main', rows: [quote('AAPL', { price: 190.5 }), quote('MSFT', { favourite: true })] },
+    'GET /portfolios/pf-pos/positions': { portfolio_id: 'pf-pos', positions: [], totals: [] },
+    'GET /strategies': [meanReversionSchema],
+    'POST /strategies/mean_reversion/run': (req: MockRequest) => {
+      const body = req.body as { tickers: string[]; config: object; instance_id?: string }
+      return { strategy: 'mean_reversion', instance_id: body.instance_id ?? null, config: body.config, calculated_at: health.server_time, results: body.tickers.map((t) => tickerResult(t)) }
+    },
+  })
 
 const paneTitles = () => screen.getAllByRole('region').map((r) => r.getAttribute('aria-label'))
 const saved = () => JSON.parse(window.localStorage.getItem(STORAGE_KEY)!)
@@ -31,16 +37,21 @@ describe('App', () => {
 
   it('shows an error and recovers on retry when the backend is unavailable', async () => {
     vi.restoreAllMocks()
-    const fetchMock = vi
-      .spyOn(globalThis, 'fetch')
-      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
-      .mockResolvedValueOnce(new Response(JSON.stringify(health), { status: 200 }))
+    let down = true
+    const api = mockApi({
+      'GET /health': () => {
+        if (down) throw new TypeError('Failed to fetch')
+        return health
+      },
+      'GET /portfolios': () => (down ? apiError(503, 'Unavailable') : []),
+    })
 
     render(<App />)
     expect(await screen.findByText('The backend is unavailable.')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    down = false
+    await userEvent.click(within(screen.getByText('The backend is unavailable.').closest('[role=alert]') as HTMLElement).getByRole('button', { name: 'Retry' }))
     expect(await screen.findByText(/Backend connected/)).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(api.find('GET', '/health')).toHaveLength(2)
   })
 
   it('starts with the default dashboard and saves it', () => {
@@ -82,13 +93,64 @@ describe('App', () => {
     expect(screen.getByText(/The dashboard is empty/)).toBeInTheDocument()
   })
 
+  it('shows real data in the default panes', async () => {
+    render(<App />)
+    expect(await screen.findByText('190.50')).toBeInTheDocument()
+    expect(await screen.findByText('No open positions.')).toBeInTheDocument()
+  })
+
+  it('keeps several strategy panes with different configurations across a refresh', async () => {
+    const api = healthy()
+    const first = render(<App />)
+    for (let i = 0; i < 2; i++) {
+      await userEvent.click(screen.getByRole('button', { name: /Add pane/ }))
+      await userEvent.click(screen.getByRole('menuitem', { name: /Strategy/ }))
+    }
+    const [one, two] = screen.getAllByRole('form', { name: 'Strategy settings' })
+    // Pane 1: whole watchlist, lookback 10.
+    const lookback = await within(one).findByLabelText(/Lookback/)
+    await userEvent.clear(lookback)
+    await userEvent.type(lookback, '10')
+    await userEvent.click(within(one).getByRole('button', { name: 'Save' }))
+    // Pane 2: favourites, default settings.
+    await userEvent.click(within(two).getByLabelText('Portfolio favourites'))
+    await userEvent.click(within(two).getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(screen.getAllByRole('table', { name: 'Mean Reversion results' })).toHaveLength(2))
+
+    const strategyPanes = () => saved().panes.filter((p: { type: string }) => p.type === 'strategy')
+    const [c1, c2] = strategyPanes().map((p: { config: unknown }) => p.config)
+    expect(c1).toMatchObject({ params: { lookback_days: 10 }, source: { kind: 'portfolio', portfolioId: 'pf-main' } })
+    expect(c2).toMatchObject({ params: { lookback_days: 20 }, source: { kind: 'favourites', portfolioId: 'pf-main' } })
+    first.unmount()
+
+    api.calls.length = 0
+    render(<App />)
+    await waitFor(() => expect(screen.getAllByRole('table', { name: 'Mean Reversion results' })).toHaveLength(2))
+    const ids = strategyPanes().map((p: { id: string }) => p.id)
+    const reruns = api.find('POST', '/strategies/mean_reversion/run').map((c) => c.body as { instance_id: string; tickers: string[]; config: { lookback_days: number } })
+    expect(reruns.find((r) => r.instance_id === ids[0])).toMatchObject({ tickers: ['AAPL', 'MSFT'], config: { lookback_days: 10 } })
+    expect(reruns.find((r) => r.instance_id === ids[1])).toMatchObject({ tickers: ['MSFT'], config: { lookback_days: 20 } })
+  })
+
+  it('keeps the selected portfolio after a refresh', async () => {
+    const first = render(<App />)
+    await screen.findByText('190.50')
+    const picker = within(screen.getByRole('region', { name: 'Portfolio' })).getByRole('combobox', { name: 'Portfolio' })
+    await userEvent.selectOptions(picker, 'pf-pos')
+    first.unmount()
+    render(<App />)
+    const region = screen.getByRole('region', { name: 'Portfolio' })
+    await waitFor(() => expect(within(region).getByRole('combobox', { name: 'Portfolio' })).toHaveValue('pf-pos'))
+  })
+
   it('minimises and restores a pane', async () => {
     render(<App />)
+    await screen.findByText('190.50')
     await userEvent.click(screen.getByRole('button', { name: 'Minimise Portfolio' }))
-    expect(screen.queryByText('Portfolio content will appear here.')).not.toBeInTheDocument()
+    expect(screen.queryByRole('table', { name: 'Main Portfolio prices' })).not.toBeInTheDocument()
     expect(Object.values(saved().minimised)).toEqual([10])
     await userEvent.click(screen.getByRole('button', { name: 'Restore Portfolio' }))
-    expect(screen.getByText('Portfolio content will appear here.')).toBeInTheDocument()
+    expect(await screen.findByRole('table', { name: 'Main Portfolio prices' })).toBeInTheDocument()
   })
 
   it('restores the saved layout after a browser refresh', async () => {
