@@ -13,7 +13,7 @@ from app import __version__
 from app.api import health
 from app.config import Settings, get_settings
 from app.logging_config import configure_logging
-from app.persistence.data_dirs import initialise_data_dirs
+from app.persistence import open_persistence
 from app.schemas.errors import register_error_handlers
 
 logger = logging.getLogger(__name__)
@@ -26,7 +26,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        app.state.data_info = initialise_data_dirs(settings.data_dir)
+        persistence = open_persistence(
+            settings.data_dir,
+            lock_timeout=settings.persistence_lock_timeout,
+            backup_retention=settings.backup_retention_count,
+            backup_on_startup=settings.backup_on_startup,
+        )
+        app.state.persistence = persistence
+        app.state.data_info = persistence.info
         logger.info(
             "application startup",
             extra={

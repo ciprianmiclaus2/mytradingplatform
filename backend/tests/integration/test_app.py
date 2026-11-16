@@ -90,3 +90,50 @@ def test_validation_errors_use_error_envelope(settings: Settings) -> None:
     error = resp.json()["error"]
     assert error["code"] == "validation_error"
     assert error["details"][0]["loc"] == ["query", "n"]
+
+
+def test_persistence_errors_map_to_clear_responses(settings: Settings) -> None:
+    from app.persistence.errors import IncompatibleSchemaError, LockTimeoutError
+
+    app = create_app(settings)
+    router = APIRouter()
+
+    @router.get("/incompatible")
+    def incompatible() -> None:
+        raise IncompatibleSchemaError("transactions/transactions.parquet is incompatible")
+
+    @router.get("/locked")
+    def locked() -> None:
+        raise LockTimeoutError("Timed out waiting for the data write lock")
+
+    app.include_router(router, prefix="/api")
+    with TestClient(app, raise_server_exceptions=False) as c:
+        r1 = c.get("/api/incompatible")
+        r2 = c.get("/api/locked")
+
+    assert r1.status_code == 500
+    assert r1.json()["error"] == {
+        "code": "incompatible_schema",
+        "message": "transactions/transactions.parquet is incompatible",
+        "details": None,
+    }
+    assert r2.status_code == 503
+    assert r2.json()["error"]["code"] == "persistence_lock_timeout"
+
+
+def test_startup_takes_backup_and_exposes_persistence(settings: Settings, data_dir: Path) -> None:
+    with TestClient(create_app(settings)) as c:
+        assert c.app.state.persistence.store.data_dir == data_dir.resolve()  # type: ignore[attr-defined]
+    assert len([p for p in (data_dir / "backups").iterdir() if p.name.endswith("-startup")]) == 1
+
+
+def test_startup_fails_on_incompatible_data_schema(settings: Settings, data_dir: Path) -> None:
+    import json
+
+    import pytest
+
+    (data_dir / "metadata").mkdir(parents=True)
+    (data_dir / "metadata" / "schema_version.json").write_text(json.dumps({"schema_version": 99}))
+    with pytest.raises(Exception, match="migration is required"):
+        with TestClient(create_app(settings)):
+            pass

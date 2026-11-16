@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     market_data_timeout: float = Field(default=30, gt=0)
     current_price_archive_threshold: int = Field(default=100_000, gt=0)
     backup_retention_count: int = Field(default=10, ge=1)
+    backup_on_startup: bool = True
+    persistence_lock_timeout: float = Field(default=10, gt=0)
 
     # Origins allowed to call the API directly (the Vite dev server by default).
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]

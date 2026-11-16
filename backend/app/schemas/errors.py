@@ -18,6 +18,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.persistence.errors import LockTimeoutError, PersistenceError
+
 logger = logging.getLogger(__name__)
 
 
@@ -78,6 +80,16 @@ def register_error_handlers(app: FastAPI) -> None:
     async def _http_error(_: Request, exc: StarletteHTTPException) -> JSONResponse:
         code = _HTTP_CODES.get(exc.status_code, "http_error")
         return _error(exc.status_code, code, str(exc.detail))
+
+    @app.exception_handler(PersistenceError)
+    async def _persistence_error(request: Request, exc: PersistenceError) -> JSONResponse:
+        logger.error(
+            "persistence error",
+            exc_info=exc,
+            extra={"path": request.url.path, "method": request.method},
+        )
+        status = 503 if isinstance(exc, LockTimeoutError) else 500
+        return _error(status, exc.code, str(exc))
 
     @app.exception_handler(Exception)
     async def _unhandled(request: Request, exc: Exception) -> JSONResponse:

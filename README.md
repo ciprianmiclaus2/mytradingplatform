@@ -2,7 +2,7 @@
 
 A locally hosted, single-user trading dashboard. It monitors a portfolio of ticker symbols, tracks positions and cash, and runs configurable trading strategies such as mean reversion. All data is stored in local Parquet files. It never places real trades.
 
-> **Status:** Phase 1 (project foundation) is complete. See
+> **Status:** Phases 1–2 (project foundation, persistence foundation) are complete. See
 > [docs/MyTradingPlatform_v1_ImplementationPlan.md](docs/MyTradingPlatform_v1_ImplementationPlan.md)
 > for the full V1 plan.
 
@@ -109,6 +109,8 @@ The backend reads its settings from environment variables, or from an optional `
 | `MARKET_DATA_TIMEOUT` | `30` | Provider request timeout, in seconds |
 | `CURRENT_PRICE_ARCHIVE_THRESHOLD` | `100000` | Row count at which the current-price file is rotated |
 | `BACKUP_RETENTION_COUNT` | `10` | Number of backups kept |
+| `BACKUP_ON_STARTUP` | `true` | Back up application state on startup (skipped if nothing changed since the last backup) |
+| `PERSISTENCE_LOCK_TIMEOUT` | `10` | Seconds to wait for the data write lock |
 | `CORS_ORIGINS` | the Vite dev origins | JSON list of allowed browser origins |
 | `LOG_LEVEL` | `INFO` | Log level. Logs are written to stderr as JSON lines |
 
@@ -140,7 +142,33 @@ $DATA_DIR/
     └── schema_version.json
 ```
 
-On startup the backend checks `metadata/schema_version.json`. If the version doesn't match, or the file is unreadable, the backend refuses to start and leaves the existing data untouched.
+On startup the backend:
+
+1. Checks `metadata/schema_version.json`.
+2. Removes temporary files left behind by an interrupted write.
+3. Validates every known data file against its declared schema.
+4. Rebuilds derived data whose source files have changed.
+5. Takes a backup.
+
+The backend refuses to start, and leaves the existing data untouched, if the schema version doesn't match or any data file is unreadable or incompatible.
+
+All writes are validated, serialised by a single write lock, and atomic: data goes to a temporary file that then replaces the original. See [docs/architecture.md](docs/architecture.md#persistence).
+
+## Maintenance scripts
+
+Run these with the backend virtual environment. They use the same `DATA_DIR` setting as the backend.
+
+```bash
+backend/.venv/bin/python scripts/backup_data.py create --reason before-upgrade
+backend/.venv/bin/python scripts/backup_data.py list
+backend/.venv/bin/python scripts/backup_data.py verify <name>
+backend/.venv/bin/python scripts/backup_data.py restore <name>   # stop the backend first
+
+backend/.venv/bin/python scripts/rebuild_derived.py --list       # derived data and whether it's stale
+backend/.venv/bin/python scripts/rebuild_derived.py              # rebuild everything
+```
+
+A backup is a timestamped folder under `backups/` with a checksum manifest. It covers portfolios, positions, transactions, strategies and metadata, but not market data, which can be downloaded again. Restoring always backs up the current state first.
 
 The data directory is never served over HTTP.
 
@@ -161,6 +189,8 @@ Automated tests never call Yahoo Finance. The market data tests use mocked provi
 |---|---|
 | UI shows "The backend is unavailable." | Start the backend, and check that `VITE_BACKEND_URL` matches `APP_HOST`/`APP_PORT` |
 | Backend exits with "schema version … migration is required" | `DATA_DIR` holds data from an incompatible version. Point `DATA_DIR` elsewhere, or migrate the data |
+| Backend exits with "… is incompatible" or "… cannot be read" | A data file has the wrong schema or is damaged. Restore it with `scripts/backup_data.py restore <name>`, or rebuild derived data with `scripts/rebuild_derived.py` |
+| API returns `persistence_lock_timeout` | A maintenance script is holding the write lock. Wait for it to finish |
 | Backend exits with "Cannot create data directory" | `DATA_DIR` isn't writable, or part of its path is a file |
 | Browser shows a CORS error when `VITE_API_BASE_URL` is an absolute URL | Add the frontend origin to `CORS_ORIGINS` |
 | `node: command not found` in a script or IDE terminal | Node was installed with nvm. Run `source ~/.nvm/nvm.sh` or open a login shell |
