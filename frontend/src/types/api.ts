@@ -154,7 +154,7 @@ export interface StrategyParameter {
   choices: string[] | null
 }
 
-export type OutputFormat = 'price' | 'number' | 'percent' | 'text'
+export type OutputFormat = 'price' | 'number' | 'percent' | 'integer' | 'text'
 
 export interface OutputColumn {
   name: string
@@ -167,6 +167,8 @@ export interface StrategySchema {
   name: string
   title: string
   description: string
+  /** User-facing explanation: paragraphs separated by blank lines, '## ' headings, '- ' bullets. */
+  explanation: string
   parameters: StrategyParameter[]
   outputs: OutputColumn[]
 }

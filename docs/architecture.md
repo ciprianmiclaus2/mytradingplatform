@@ -195,7 +195,7 @@ Running a strategy takes these steps:
 Signal state rules:
 
 - Only `OK` results change state.
-- The first `OK` calculation records an existing BUY or SELL straight away.
+- The first `OK` calculation of a ticker by an instance records a **baseline** row with `previous_signal == new_signal` (e.g. BUY→BUY, or null→null). It is not a change: the result is not marked new, `signal_changed_at` stays null (when the state began is unknown), and baselines are left out of the history listing. A real transition always has different values, so no extra column is needed. Rows written before this rule (a first sighting stored as null→BUY) still read as ordinary transitions.
 - Repeated identical states are never recorded.
 
 **Boundaries.** A test checks these by parsing imports:
@@ -207,14 +207,27 @@ Signal state rules:
 
 1. Create the package `app/strategies/<name>/`, containing `__init__.py` and `strategy.py`.
 2. In `strategy.py`, subclass `BaseStrategy` and decorate it with `@register_strategy`. Define:
-   - `name`, `title` and `description`;
+   - `name`, `title` and `description` (one line);
+   - `explanation`: the user-facing explanation shown in the UI ("How this strategy works" in the setup form, and **About** on the results). Plain text: blocks separated by blank lines, `## ` for a heading, `- ` for bullet lines. It is rendered as text, never HTML;
    - `parameters` (`StrategyParameter`s: type, default, min/max, choices, description);
    - `outputs` (`OutputColumn`s for the result grid);
    - optionally `primary_metric` (recorded with signal transitions);
    - `required_sessions(config)`;
-   - `calculate(tickers, market_data, config)`, returning one `StrategyOutput` per ticker. Report problems through `status` rather than raising.
+   - `calculate(tickers, market_data, config)`, returning one `StrategyOutput` per ticker. Report problems through `status` rather than raising. `strategies/series.py` builds the usual price series (completed closes, optionally followed by the current price) and returns the standard NO_PRICE / DATA_ERROR / INSUFFICIENT_DATA / currency-mismatch statuses; `strategies/indicators.py` has SMA, EMA and Wilder RSI, per-session SMA/EMA series, and `sessions_since_cross`.
    - Optionally override `check_config(config)` for cross-parameter rules.
 3. That's all. `discover_strategies()` imports `app.strategies.<pkg>.strategy` at startup. Only sub-packages of this trusted application package are imported. No new API route or frontend form is needed.
+
+### Included strategies
+
+Strategies are listed by title. Each package holds `config.py` (parameters, output columns, explanation) and `strategy.py`.
+
+| Strategy | Name | Signal | History requested |
+|---|---|---|---|
+| Mean Reversion | `mean_reversion` | z-score of the current price against the previous N closes: BUY ≤ buy threshold, SELL ≥ sell threshold | N sessions |
+| RSI | `rsi` | Wilder RSI over closes + current price: BUY ≤ oversold (30), SELL ≥ overbought (70) | period × 10 (warm-up); calculated with at least `period` sessions |
+| Moving Average Crossover | `ma_crossover` | *Recent cross* (default): BUY/SELL only if the fast MA crossed the slow MA within the last N sessions. *Trend*: BUY while fast > slow, SELL while below. Reports sessions since the last cross (searched up to 250 sessions back). SMA or EMA; current price optional | slow + 250 (SMA); max(slow + 250, slow × 3) (EMA) |
+
+The RSI implementation is tested against the StockCharts ChartSchool worked example (19 values, exact to 2 decimals).
 
 ### Mean Reversion
 
@@ -255,13 +268,16 @@ App
  ├─ Header        Menu (Reset layout) · Add pane menu · BackendStatus
  ├─ warning banners (saved layout invalid, layout cannot be saved)
  └─ Dashboard     React Grid Layout v2 (useContainerWidth + ReactGridLayout)
-     └─ PaneFrame × n   title bar (drag handle) · minimise · remove (ConfirmDialog) · pane body
+     └─ PaneGroupFrame × n   one tile: grip + empty header (drag handles) · tab bar · ⋯ menu (move to / detach / remove) · minimise
+         └─ tab panels       one per pane; inactive ones stay mounted but hidden
 ```
 
 | File | Responsibility |
 |---|---|
-| `dashboard/types.ts` | `Pane {id, type, title, config}`, `PaneLayout {i, x, y, w, h}`, `DashboardState`, the stored document |
-| `dashboard/reducer.ts` | Pure state changes: add, remove, layout change, minimise/restore, update config, reset |
+| `dashboard/types.ts` | `Pane {id, type, title, config}`, `PaneGroup {id, paneIds, active}` (a tile), `PaneLayout {i, x, y, w, h}` (per tile), `DashboardState`, the stored document |
+| `dashboard/reducer.ts` | Pure state changes: add, remove, layout change, minimise/restore, update config, select tab, move to tile, detach, reorder tabs, reset |
+| `dashboard/PaneGroupFrame.tsx` | A tile: tab bar (keyboard navigation, drag to reorder), menu, minimise, tab panels |
+| `dashboard/usePaneLabels.ts`, `panes/labels.ts` | Automatic tab names from pane settings; duplicates within a tile are numbered |
 | `dashboard/storage.ts` | Loads and saves to localStorage, validates saved layouts, and tracks whether saving worked |
 | `dashboard/useDashboard.ts` | Reducer plus automatic saving after every change |
 | `dashboard/grid.ts` | Grid geometry: 12 columns, 32px rows, 12px margins, minimised height of 1 row |
@@ -277,7 +293,16 @@ App
 
 ### Pane types
 
-The registry is the only place that knows the pane types. Adding a type means adding one registry entry with a component that receives `PaneProps {pane, onConfigChange}`. The menus, grid and storage are generic.
+The registry is the only place that knows the pane types. Adding a type means adding one registry entry with a component that receives `PaneProps {pane, onConfigChange}`, and optionally a `label(pane, {portfolios, strategies})` function for its automatic tab name (the pane title is used otherwise). The menus, grid, tabs and storage are generic.
+
+### Tabs
+
+- A tile (`PaneGroup`) holds one or more panes; a single pane is a group of one. Grid positions, sizes and minimised state belong to tiles.
+- Panes are grouped from a tab's **⋯** menu (move to another tile, detach into a new tile). Tabs can be reordered by native drag-and-drop within the tab bar. Dragging a tile still uses React Grid Layout, from the grip and the empty part of the header, so the two kinds of drag never compete.
+- A tile's minimum size is the largest minimum of its panes; moving a tab into a smaller tile grows the tile.
+- Inactive tabs stay mounted (hidden), so they reload on data changes and strategies keep recording signal history.
+- Pane ids are unchanged by grouping, so a strategy pane keeps its signal history when it moves between tiles.
+- The tab bar is an ARIA `tablist`; each pane is a `tabpanel` named by its tab. Arrow keys, Home and End switch tabs; Delete asks to remove the focused tab.
 
 ### Pane data and configuration
 
@@ -303,13 +328,17 @@ Ids are `pane-<uuid>`. They also serve as the backend strategy `instance_id` (le
 The layout is saved under `my-trading-platform-layout` as:
 
 ```json
-{"version": 1, "panes": [...], "layouts": [...], "minimised": {"<pane id>": <height to restore>}}
+{"version": 2, "panes": [...], "groups": [{"id": "group-…", "paneIds": ["pane-…"], "active": "pane-…"}],
+ "layouts": [{"i": "<group id>", ...}], "minimised": {"<group id>": <height to restore>}}
 ```
+
+Version 1 layouts (from before tabs: one pane per tile, layouts keyed by pane id) are converted on load without a notice: each pane becomes a tile `group-<pane id>`, keeping its position, size and minimised state.
 
 Loading validates the saved layout:
 
-- **Fall back to the default layout, with a notice:** invalid JSON, a wrong version, or a malformed overall structure.
-- **Drop just that pane, with a notice:** an unknown type, a bad id, a duplicate id, invalid config, or a missing or invalid layout.
+- **Fall back to the default layout, with a notice:** invalid JSON, an unknown version, or a malformed overall structure.
+- **Drop just that pane, with a notice:** an unknown type, a bad id, a duplicate id, invalid config, or not belonging to a valid tile (a tile needs a valid id and layout).
+- **Repair:** members that don't exist are removed from tiles, a pane listed in two tiles stays in the first, an invalid active tab becomes the first tab, and empty tiles are dropped.
 - **Clamp:** widths are clamped to the grid.
 
 Storage errors never crash the app. The dashboard keeps working in memory and shows a "cannot be saved" banner.

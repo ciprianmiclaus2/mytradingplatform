@@ -42,6 +42,7 @@ class OutputFormat(StrEnum):
     PRICE = "price"
     NUMBER = "number"
     PERCENT = "percent"
+    INTEGER = "integer"
     TEXT = "text"
 
 
@@ -60,6 +61,11 @@ class StrategySchema(BaseModel):
     name: str
     title: str
     description: str
+    explanation: str = Field(
+        default="",
+        description="User-facing explanation. Plain text: paragraphs separated by blank lines, "
+        "'## ' starts a heading, '- ' starts a bullet",
+    )
     parameters: list[StrategyParameter]
     outputs: list[OutputColumn] = Field(description="Strategy-specific metric columns, in display order")
 

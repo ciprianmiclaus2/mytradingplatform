@@ -199,23 +199,25 @@ Strategies are generic: adding one needs no new endpoint.
 
 | Endpoint | Method | Purpose |
 |---|---|---|
-| `/api/strategies` | GET | Available strategies with their schemas |
+| `/api/strategies` | GET | Available strategies with their schemas, sorted by title |
 | `/api/strategies/{name}/schema` | GET | Configuration schema and output columns |
 | `/api/strategies/{name}/run` | POST | Run a strategy on a list of tickers |
-| `/api/strategies/signals?instance_id=&strategy=&ticker=&limit=50&offset=0` | GET | Recorded signal transitions, newest first. `limit` is 1–500 |
+| `/api/strategies/signals?instance_id=&strategy=&ticker=&limit=50&offset=0` | GET | Recorded signal transitions, newest first (baselines excluded). `limit` is 1–500 |
 
 ### Schema
 
 ```json
-{"name": "mean_reversion", "title": "...", "description": "...",
+{"name": "mean_reversion", "title": "...", "description": "...", "explanation": "...",
  "parameters": [{"name": "lookback_days", "type": "integer", "title": "Lookback (days)", "description": "...",
                  "default": 20, "minimum": 2, "maximum": null, "choices": null}],
  "outputs": [{"name": "z_score", "title": "Z-Score", "format": "number", "description": ""}]}
 ```
 
 - **Parameter `type`:** `integer`, `number`, `string` or `boolean`.
-- **Output `format`:** `price`, `number`, `percent` or `text`.
+- **Output `format`:** `price`, `number`, `percent`, `integer` or `text`.
 - The frontend builds the configuration form from `parameters`, and the result columns from `outputs`.
+- `explanation` is the user-facing description of the strategy: plain text with blank-line-separated blocks, `## ` headings and `- ` bullets.
+- Strategies: `mean_reversion`, `rsi` (parameters `period`, `oversold`, `overbought`; outputs `rsi`, `average_gain`, `average_loss`) and `ma_crossover` (parameters `fast_period`, `slow_period`, `average_type` `SMA`/`EMA`, `signal_mode` `Recent cross`/`Trend`, `recent_sessions`, `use_current_price`; outputs `fast_ma`, `slow_ma`, `spread_pct`, `sessions_since_cross`).
 
 ### Run
 
@@ -262,8 +264,8 @@ These are filled only for `OK` rows of runs that had an `instance_id`:
 
 | Field | Meaning |
 |---|---|
-| `is_new_signal` | The signal state changed in this run |
-| `signal_changed_at` | When the current state began |
+| `is_new_signal` | The signal state changed in this run. Never true on the first run of an instance for a ticker: that run only records the starting state |
+| `signal_changed_at` | When the current state began; null if it was already in place when the instance first saw the ticker |
 | `previous_signal` | The state before the current one |
 
 ### Signal event

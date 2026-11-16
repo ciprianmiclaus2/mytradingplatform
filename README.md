@@ -64,7 +64,7 @@ The script:
 - Starts the backend and waits for `/api/health` to respond.
 - Starts the frontend at http://127.0.0.1:5173.
 
-Output from the two servers is prefixed `[backend]` and `[frontend]`. **Ctrl+C stops both.** Backend variables pass straight through, for example `APP_PORT=8001 DATA_DIR=/tmp/mtp ./start.sh`. The frontend proxy follows `APP_PORT` automatically.
+Output from the two servers is prefixed `[backend]` and `[frontend]`. **Ctrl+C stops both.** Backend variables pass straight through, for example `APP_PORT=8001 DATA_DIR=/tmp/mtp ./start.sh`. The frontend proxy follows `APP_PORT` automatically, and `FRONTEND_PORT` (default 5173) sets the frontend port. `start.sh` refuses to start if either port is already in use, so a second copy can't silently attach to the first one's backend and data. To run a second copy alongside, use different ports: `APP_PORT=8100 FRONTEND_PORT=5273 DATA_DIR=/tmp/mtp ./start.sh`.
 
 ### Separately
 
@@ -95,12 +95,16 @@ The header of the web page shows "Backend connected" when the frontend can reach
 
 ### Using the dashboard
 
-The dashboard is a grid of panes.
+The dashboard is a grid of tiles. Each tile holds one or more panes as tabs.
 
-- **Add pane** adds a Portfolio, Positions or Strategy pane. You can have several of the same type.
-- **Move** a pane by dragging its title bar. **Resize** it from its bottom-right corner.
-- **–** minimises a pane to its title bar. **×** removes it, after you confirm.
+- **Add pane** adds a Portfolio, Positions or Strategy pane in a new tile. You can have several of the same type.
+- **Tabs** are named automatically from each pane's settings, for example "Main Portfolio", "Positions · IBKR" or "RSI · Tech favourites". Identical names within a tile are numbered.
+- **Group panes as tabs:** open a tab's **⋯** menu and choose **Move … to:** another tile. **Detach** puts a tab back in its own tile. Drag a tab sideways within its tab bar to reorder it; click a tab, or use the arrow keys, to switch.
+- **Move** a tile by dragging its grip (⠿) or the empty part of its header. **Resize** it from its bottom-right corner.
+- **–** minimises a tile to its header. **×** on a tab removes that pane, after you confirm.
 - **Menu → Reset layout** restores the default panes.
+
+Panes in hidden tabs keep working: a Refresh updates them and their strategies recalculate, so signal history stays complete.
 
 **Refresh:** the **↻ Refresh** button in the header fetches the latest price of every ticker the dashboard uses, once each: every portfolio's tickers, open positions, and tickers typed into strategy panes. All panes then reload and strategies recalculate. Next to the button you see the outcome (for example "1 of 12 tickers failed", with **details**) and the time of the last successful refresh. A ticker that fails keeps its last valid price, marked ⚠. Prices are only fetched when you press Refresh (and when a ticker is first added).
 
@@ -108,7 +112,7 @@ The dashboard is a grid of panes.
 
 - **Portfolio:** prices, daily change and daily change % for any portfolio. Use **⋯** to create, rename or delete portfolios. For a watchlist, type a symbol or company name in **Add ticker…** and pick a suggestion or press Enter; **★** marks favourites, and **×** removes a ticker. ⚠ marks a price whose last refresh failed (the last known price is shown).
 - **Positions:** open positions with market value, daily P&L and unrealised P&L, with one totals row per currency. **+ Add position**, **Edit**, **Close** and **Delete** manage them. The entry and exit prices default to the latest market price. Tick **Show closed** to see closed positions and realised P&L.
-- **Strategy:** choose a strategy, its settings (the form is built from the strategy's own parameter list), and its tickers: a portfolio, a portfolio's favourites, or a typed list. The pane shows the strategy's metrics and the BUY (green) or SELL (red) signal per ticker; **Settings** changes the configuration, and **↻** recalculates. Tickers without enough history show a status rather than numbers.
+- **Strategy:** choose a strategy (Mean Reversion, RSI, or Moving Average Crossover), its settings (the form is built from the strategy's own parameter list), and its tickers: a portfolio, a portfolio's favourites, or a typed list. The pane shows the strategy's metrics and the BUY (green) or SELL (red) signal per ticker; **Settings** changes the configuration, **↻** recalculates, and **About** explains how the strategy works and how to read it (also available as "How this strategy works" while choosing). Tickers without enough history show a status rather than numbers.
 
 Click a column header to sort; click again to reverse. Each pane's settings (selected portfolio, show closed, strategy configuration) are saved with the layout.
 
@@ -238,4 +242,5 @@ What the suites cover:
 | Browser shows a CORS error when `VITE_API_BASE_URL` is an absolute URL | Add the frontend origin to `CORS_ORIGINS` |
 | `start.sh` says "Backend did not become healthy" but the backend log shows it started | Fixed in V1: the health check now ignores `http_proxy`/`https_proxy`. If you call the API with your own tools behind a proxy, add `127.0.0.1` to `no_proxy` |
 | Refresh shows "Refresh failed for all N tickers" | Yahoo Finance is unreachable (network, proxy, or rate limiting). Prices stay on screen marked ⚠; press Refresh again later. **details** shows the error per ticker |
+| `start.sh` says "Port 8000 is already in use" | The app (or something else) is already running. Use the running copy, stop it, or choose other ports with `APP_PORT` / `FRONTEND_PORT` |
 | `node: command not found` in a script or IDE terminal | Node was installed with nvm. Run `source ~/.nvm/nvm.sh` or open a login shell |

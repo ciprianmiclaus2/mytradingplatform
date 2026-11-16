@@ -1,3 +1,4 @@
+import { portfolioLabel, positionsLabel, strategyLabel } from './labels'
 import { PortfolioPane } from './PortfolioPane'
 import { PositionsPane } from './positions/PositionsPane'
 import { StrategyPane } from './strategy/StrategyPane'
@@ -16,6 +17,7 @@ const definitions: PaneDefinition[] = [
     defaultSize: { w: 6, h: 10 },
     minSize: { w: 3, h: 4 },
     defaultConfig: () => ({}),
+    label: portfolioLabel,
   },
   {
     type: 'positions',
@@ -25,6 +27,7 @@ const definitions: PaneDefinition[] = [
     defaultSize: { w: 6, h: 10 },
     minSize: { w: 4, h: 4 },
     defaultConfig: () => ({ showClosed: false }),
+    label: positionsLabel,
   },
   {
     type: 'strategy',
@@ -34,6 +37,7 @@ const definitions: PaneDefinition[] = [
     defaultSize: { w: 12, h: 12 },
     minSize: { w: 4, h: 4 },
     defaultConfig: () => ({}),
+    label: strategyLabel,
   },
 ]
 

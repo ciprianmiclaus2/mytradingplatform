@@ -42,6 +42,9 @@ def test_run_with_signal_history(api: TestClient, fake_provider: FakeProvider) -
     api.post("/api/market-data/refresh", json={"extra_tickers": ["LOW"]})
 
     body = {"tickers": ["low", "NOPE"], "config": {"lookback": 2}, "instance_id": "pane-abc"}
+    # First run with a wide band: no signal yet (the baseline).
+    first = api.post("/api/strategies/level_test/run", json={**body, "config": {"lookback": 2, "level": 85, "band": 50}}).json()
+    assert first["results"][0]["signal"] is None and first["results"][0]["is_new_signal"] is False
     resp = api.post("/api/strategies/level_test/run", json=body)
 
     assert resp.status_code == 200
@@ -90,7 +93,9 @@ def test_default_app_runs_mean_reversion(client: TestClient, fake_provider: Fake
     fake_provider.set_quote("AAPL", 95.0, previous_close=97.0, timestamp=datetime.now(UTC))
     client.post("/api/market-data/refresh", json={"extra_tickers": ["AAPL"]})
 
-    assert [s["name"] for s in client.get("/api/strategies").json()] == ["mean_reversion"]
+    listed = client.get("/api/strategies").json()
+    assert [s["title"] for s in listed] == ["Mean Reversion", "Moving Average Crossover", "RSI"]
+    assert all(s["explanation"] for s in listed)
     resp = client.post("/api/strategies/mean_reversion/run",
                        json={"tickers": ["AAPL"], "config": {"lookback_days": 10}, "instance_id": "p1"})
     assert resp.status_code == 200
@@ -101,3 +106,41 @@ def test_default_app_runs_mean_reversion(client: TestClient, fake_provider: Fake
     bad = client.post("/api/strategies/mean_reversion/run",
                       json={"tickers": ["AAPL"], "config": {"buy_threshold": 3, "sell_threshold": 2}})
     assert bad.status_code == 422 and "buy_threshold" in bad.json()["error"]["details"]
+
+
+def test_default_app_runs_rsi_and_ma_crossover(client: TestClient, fake_provider: FakeProvider) -> None:
+    today = datetime.now(UTC).date()
+    # 300 sessions rising steadily, then the quote drops sharply.
+    fake_provider.set_closes("UP", {today - timedelta(days=i): 100.0 + (300 - i) * 0.1 for i in range(1, 301)})
+    fake_provider.set_quote("UP", 110.0, previous_close=129.9, timestamp=datetime.now(UTC))
+    client.post("/api/market-data/refresh", json={"extra_tickers": ["UP"]})
+
+    schema = client.get("/api/strategies/rsi/schema").json()
+    assert schema["explanation"].startswith("The Relative Strength Index")
+    assert [p["name"] for p in schema["parameters"]] == ["period", "oversold", "overbought"]
+
+    rsi = client.post("/api/strategies/rsi/run", json={"tickers": ["UP"], "instance_id": "p-rsi"}).json()
+    [row] = rsi["results"]
+    assert row["status"] == "OK" and 0 <= row["metrics"]["rsi"] <= 100
+
+    ma = client.post("/api/strategies/ma_crossover/run",
+                     json={"tickers": ["UP"], "config": {"fast_period": 20, "slow_period": 50, "signal_mode": "Trend"},
+                           "instance_id": "p-ma"}).json()
+    [row] = ma["results"]
+    assert row["status"] == "OK" and row["signal"] == "BUY"  # long uptrend: fast above slow
+    assert row["metrics"]["fast_ma"] > row["metrics"]["slow_ma"] and row["metrics"]["spread_pct"] > 0
+    assert row["is_new_signal"] is False and row["signal_changed_at"] is None  # first sighting, not a new cross
+
+    ema = client.post("/api/strategies/ma_crossover/run",
+                      json={"tickers": ["UP"], "config": {"fast_period": 20, "slow_period": 50, "average_type": "EMA",
+                                                          "use_current_price": False}}).json()
+    assert ema["results"][0]["status"] == "OK" and ema["config"]["average_type"] == "EMA"
+
+    # Default mode (recent cross): a trend that started long ago gives no signal.
+    recent = client.post("/api/strategies/ma_crossover/run",
+                         json={"tickers": ["UP"], "config": {"fast_period": 20, "slow_period": 50}}).json()["results"][0]
+    assert recent["signal"] is None and recent["metrics"]["sessions_since_cross"] is None
+
+    bad = client.post("/api/strategies/ma_crossover/run",
+                      json={"tickers": ["UP"], "config": {"fast_period": 60, "slow_period": 50}})
+    assert bad.status_code == 422 and "fast_period" in bad.json()["error"]["details"]

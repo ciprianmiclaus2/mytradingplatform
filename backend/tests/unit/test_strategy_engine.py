@@ -246,35 +246,55 @@ def test_empty_ticker_list(engine: StrategyEngine) -> None:
 
 def test_signal_transitions_recorded_once(engine: StrategyEngine, clock: dict, market: MarketDataService,
                                           provider: FakeProvider) -> None:
+    # First sighting: a baseline, not a change. The signal exists but is not "new",
+    # and when it began is unknown.
     first = {r.ticker: r for r in engine.run("level_test", ["LOW", "MID"], {}, instance_id="pane-1").results}
-    assert first["LOW"].is_new_signal is True and first["LOW"].previous_signal is None
-    assert first["LOW"].signal_changed_at == FIXED_NOW
-    assert first["MID"].is_new_signal is False and first["MID"].signal_changed_at is None  # NONE from the start
+    assert first["LOW"].signal is Signal.BUY and first["LOW"].is_new_signal is False
+    assert first["LOW"].signal_changed_at is None and first["LOW"].previous_signal is None
+    assert first["MID"].signal is None and first["MID"].is_new_signal is False
+    assert engine.signals.history(instance_id="pane-1").total == 0  # baselines are not listed
 
     clock["now"] = FIXED_NOW + timedelta(minutes=5)
     second = {r.ticker: r for r in engine.run("level_test", ["LOW", "MID"], {}, instance_id="pane-1").results}
     assert second["LOW"].signal is Signal.BUY and second["LOW"].is_new_signal is False
-    assert second["LOW"].signal_changed_at == FIXED_NOW  # existing signal, not new
-    assert engine.signals.history(instance_id="pane-1").total == 1  # no duplicate events
+    assert second["LOW"].signal_changed_at is None
 
-    # Price moves back between the thresholds: BUY -> NONE is recorded.
+    # Price moves back between the thresholds: BUY -> NONE is a real change.
     clock["now"] = FIXED_NOW + timedelta(minutes=10)
     provider.set_quote("LOW", 104.0, previous_close=90.0, timestamp=clock["now"])
     market.refresh(["LOW"])
     third = {r.ticker: r for r in engine.run("level_test", ["LOW"], {}, instance_id="pane-1").results}
     assert third["LOW"].signal is None and third["LOW"].is_new_signal is True
-    assert third["LOW"].previous_signal is Signal.BUY
+    assert third["LOW"].previous_signal is Signal.BUY and third["LOW"].signal_changed_at == clock["now"]
+
+    # ... and back to BUY.
+    clock["now"] = FIXED_NOW + timedelta(minutes=15)
+    provider.set_quote("LOW", 90.0, previous_close=104.0, timestamp=clock["now"])
+    market.refresh(["LOW"])
+    fourth = {r.ticker: r for r in engine.run("level_test", ["LOW"], {}, instance_id="pane-1").results}
+    assert fourth["LOW"].signal is Signal.BUY and fourth["LOW"].is_new_signal is True
+
+    clock["now"] = FIXED_NOW + timedelta(minutes=20)
+    fifth = {r.ticker: r for r in engine.run("level_test", ["LOW"], {}, instance_id="pane-1").results}
+    assert fifth["LOW"].is_new_signal is False and fifth["LOW"].signal_changed_at == FIXED_NOW + timedelta(minutes=15)
 
     events = engine.signals.history(instance_id="pane-1").items
-    assert [(e.previous_signal, e.new_signal) for e in events] == [(Signal.BUY, None), (None, Signal.BUY)]
-    assert events[1].metric_name == "distance" and events[1].metric_value == -10.0
-    assert events[1].current_price == 90.0 and events[1].strategy == "level_test"
+    assert [(e.previous_signal, e.new_signal) for e in events] == [(None, Signal.BUY), (Signal.BUY, None)]
+    assert events[0].metric_name == "distance" and events[0].metric_value == -10.0
+    assert events[0].current_price == 90.0 and events[0].strategy == "level_test"
 
 
-def test_instances_are_independent(engine: StrategyEngine) -> None:
+def test_instances_are_independent(engine: StrategyEngine, clock: dict, market: MarketDataService,
+                                   provider: FakeProvider) -> None:
     engine.run("level_test", ["LOW"], {}, instance_id="a")
-    b = engine.run("level_test", ["LOW"], {}, instance_id="b").results[0]
-    assert b.is_new_signal is True
+    engine.run("level_test", ["LOW"], {}, instance_id="b")
+    clock["now"] = FIXED_NOW + timedelta(minutes=5)
+    provider.set_quote("LOW", 104.0, previous_close=90.0, timestamp=clock["now"])
+    market.refresh(["LOW"])
+    assert engine.run("level_test", ["LOW"], {}, instance_id="a").results[0].is_new_signal is True
+    assert engine.run("level_test", ["LOW"], {}, instance_id="a").results[0].is_new_signal is False
+    assert engine.run("level_test", ["LOW"], {}, instance_id="b").results[0].is_new_signal is True  # b's own state
+    assert engine.run("level_test", ["LOW"], {}, instance_id="c").results[0].is_new_signal is False  # c: first sighting
     assert engine.signals.history().total == 2
 
 
@@ -291,7 +311,7 @@ def test_failed_calculation_keeps_previous_state(engine: StrategyEngine, provide
     # More history needed than exists: insufficient data must not record BUY -> NONE.
     insufficient = engine.run("level_test", ["LOW"], {"lookback": 50}, instance_id="p").results[0]
     assert insufficient.status is CalculationStatus.INSUFFICIENT_DATA
-    assert engine.signals.history(instance_id="p").total == 1
+    assert engine.signals.current_states("p", ["LOW"])["LOW"].signal is Signal.BUY  # baseline kept
     again = engine.run("level_test", ["LOW"], {"lookback": 5}, instance_id="p").results[0]
     assert again.signal is Signal.BUY and again.is_new_signal is False
 
@@ -299,7 +319,8 @@ def test_failed_calculation_keeps_previous_state(engine: StrategyEngine, provide
 def test_history_filters_and_pagination(engine: StrategyEngine, clock: dict) -> None:
     for i, instance in enumerate(["a", "b", "c"]):
         clock["now"] = FIXED_NOW + timedelta(minutes=i)
-        engine.run("level_test", ["LOW", "HIGH"], {}, instance_id=instance)
+        engine.run("level_test", ["LOW", "HIGH"], {"level": 85, "band": 50}, instance_id=instance)  # baseline: no signals
+        engine.run("level_test", ["LOW", "HIGH"], {}, instance_id=instance)  # both change
     assert engine.signals.history().total == 6
     page = engine.signals.history(limit=2, offset=1)
     assert page.total == 6 and len(page.items) == 2 and page.offset == 1

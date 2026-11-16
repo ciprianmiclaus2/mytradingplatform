@@ -14,8 +14,13 @@ export interface DashboardApi {
   addPane: (paneType: string) => void
   removePane: (id: string) => void
   layoutChange: (layouts: readonly PaneLayout[]) => void
+  /** Minimise or restore a tile (group id). */
   toggleMinimise: (id: string) => void
   updateConfig: (id: string, config: Record<string, unknown>) => void
+  selectTab: (groupId: string, paneId: string) => void
+  moveToGroup: (paneId: string, groupId: string) => void
+  detachPane: (paneId: string) => void
+  reorderTab: (paneId: string, index: number) => void
   resetLayout: () => void
 }
 
@@ -42,6 +47,10 @@ export function useDashboard(): DashboardApi {
     (id: string, config: Record<string, unknown>) => dispatch({ type: 'updateConfig', id, config }),
     [],
   )
+  const selectTab = useCallback((groupId: string, paneId: string) => dispatch({ type: 'selectTab', groupId, paneId }), [])
+  const moveToGroup = useCallback((paneId: string, groupId: string) => dispatch({ type: 'moveToGroup', paneId, groupId }), [])
+  const detachPane = useCallback((paneId: string) => dispatch({ type: 'detachPane', paneId }), [])
+  const reorderTab = useCallback((paneId: string, index: number) => dispatch({ type: 'reorderTab', paneId, index }), [])
   const resetLayout = useCallback(() => {
     dispatch({ type: 'reset', state: defaultDashboard() })
     setWarning(null)
@@ -49,7 +58,13 @@ export function useDashboard(): DashboardApi {
   const dismissWarning = useCallback(() => setWarning(null), [])
 
   return useMemo(
-    () => ({ state, warning, saveOk, dismissWarning, addPane, removePane, layoutChange, toggleMinimise, updateConfig, resetLayout }),
-    [state, warning, saveOk, dismissWarning, addPane, removePane, layoutChange, toggleMinimise, updateConfig, resetLayout],
+    () => ({
+      state, warning, saveOk, dismissWarning, addPane, removePane, layoutChange, toggleMinimise, updateConfig,
+      selectTab, moveToGroup, detachPane, reorderTab, resetLayout,
+    }),
+    [
+      state, warning, saveOk, dismissWarning, addPane, removePane, layoutChange, toggleMinimise, updateConfig,
+      selectTab, moveToGroup, detachPane, reorderTab, resetLayout,
+    ],
   )
 }

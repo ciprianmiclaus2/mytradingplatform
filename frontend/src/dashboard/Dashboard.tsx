@@ -1,38 +1,46 @@
 import { useMemo } from 'react'
 import ReactGridLayout, { useContainerWidth, type Layout, type LayoutItem } from 'react-grid-layout'
-import { getPaneDefinition } from '../panes/registry'
-import { PaneFrame } from './PaneFrame'
+import { PaneGroupFrame } from './PaneGroupFrame'
 import { GRID_COLS, GRID_MARGIN, ROW_HEIGHT } from './grid'
+import { groupMinSize } from './reducer'
+import type { Pane } from './types'
 import type { DashboardApi } from './useDashboard'
+import { usePaneLabels } from './usePaneLabels'
 
 interface Props {
   dashboard: DashboardApi
 }
 
 export function Dashboard({ dashboard }: Props) {
-  const { state, layoutChange, removePane, toggleMinimise, updateConfig } = dashboard
-  // Measure before the first render so panes do not jump from a default width.
+  const { state, layoutChange, removePane, toggleMinimise, updateConfig, selectTab, moveToGroup, detachPane, reorderTab } = dashboard
+  // Measure before the first render so tiles do not jump from a default width.
   const { width, containerRef, mounted } = useContainerWidth({ measureBeforeMount: true })
+  const labels = usePaneLabels(state)
 
   const layout: Layout = useMemo(
     () =>
       state.layouts.map((l): LayoutItem => {
-        const pane = state.panes.find((p) => p.id === l.i)
-        const def = pane ? getPaneDefinition(pane.type) : undefined
+        const group = state.groups.find((g) => g.id === l.i)
+        const min = group ? groupMinSize(state, group) : { w: 2, h: 2 }
         const minimised = l.i in state.minimised
-        return {
-          ...l,
-          minW: def?.minSize.w ?? 2,
-          minH: minimised ? 1 : (def?.minSize.h ?? 2),
-          isResizable: !minimised,
-        }
+        return { ...l, minW: min.w, minH: minimised ? 1 : min.h, isResizable: !minimised }
       }),
-    [state.layouts, state.panes, state.minimised],
+    [state],
   )
+
+  const paneById = useMemo(() => new Map(state.panes.map((p) => [p.id, p])), [state.panes])
+  const groupLabel = (groupId: string) => {
+    const group = state.groups.find((g) => g.id === groupId)
+    if (!group) return groupId
+    // Named after the first tab (stable while tabs are switched or added), plus a count.
+    const first = group.paneIds[0]
+    const name = labels[first] ?? paneById.get(first)?.title ?? groupId
+    return group.paneIds.length > 1 ? `${name} (+${group.paneIds.length - 1} more)` : name
+  }
 
   return (
     <div ref={containerRef} className="w-full">
-      {state.panes.length === 0 ? (
+      {state.groups.length === 0 ? (
         <div className="m-6 rounded-md border border-dashed border-slate-300 p-10 text-center text-sm text-slate-500">
           The dashboard is empty. Use <strong>Add pane</strong> to add a portfolio, positions or strategy pane.
         </div>
@@ -46,14 +54,21 @@ export function Dashboard({ dashboard }: Props) {
             resizeConfig={{ enabled: true }}
             onLayoutChange={layoutChange}
           >
-            {state.panes.map((pane) => (
-              <div key={pane.id} data-testid={`pane-${pane.id}`}>
-                <PaneFrame
-                  pane={pane}
-                  minimised={pane.id in state.minimised}
-                  onRemove={() => removePane(pane.id)}
-                  onToggleMinimise={() => toggleMinimise(pane.id)}
-                  onConfigChange={(config) => updateConfig(pane.id, config)}
+            {state.groups.map((group) => (
+              <div key={group.id} data-testid={`tile-${group.id}`}>
+                <PaneGroupFrame
+                  group={group}
+                  panes={group.paneIds.map((id) => paneById.get(id)).filter((p): p is Pane => p !== undefined)}
+                  labels={labels}
+                  targets={state.groups.filter((g) => g.id !== group.id).map((g) => ({ id: g.id, label: groupLabel(g.id) }))}
+                  minimised={group.id in state.minimised}
+                  onSelect={(paneId) => selectTab(group.id, paneId)}
+                  onRemove={removePane}
+                  onToggleMinimise={() => toggleMinimise(group.id)}
+                  onConfigChange={updateConfig}
+                  onMoveTo={moveToGroup}
+                  onDetach={detachPane}
+                  onReorder={reorderTab}
                 />
               </div>
             ))}

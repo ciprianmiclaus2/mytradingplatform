@@ -250,8 +250,8 @@ def test_engine_insufficient_history_no_false_signal(engine: StrategyEngine) -> 
 
 def test_engine_signal_transitions(engine: StrategyEngine, market: MarketDataService, provider: FakeProvider,
                                    clock: dict) -> None:
-    first = run(engine, ["AAA"])["AAA"]  # existing condition produces a signal immediately
-    assert first.signal is Signal.BUY and first.is_new_signal is True
+    first = run(engine, ["AAA"])["AAA"]  # existing condition: a signal, but not a new one (first sighting)
+    assert first.signal is Signal.BUY and first.is_new_signal is False and first.signal_changed_at is None
 
     clock["now"] += timedelta(minutes=5)
     second = run(engine, ["AAA"])["AAA"]
@@ -271,7 +271,6 @@ def test_engine_signal_transitions(engine: StrategyEngine, market: MarketDataSer
     assert fourth.signal is Signal.SELL and fourth.metrics["z_score"] == 2.5
 
     events = engine.signals.history(instance_id="pane-1").items
-    assert [(e.previous_signal, e.new_signal) for e in reversed(events)] == [
-        (None, Signal.BUY), (Signal.BUY, None), (None, Signal.SELL)]
+    assert [(e.previous_signal, e.new_signal) for e in reversed(events)] == [(Signal.BUY, None), (None, Signal.SELL)]
     assert events[0].metric_name == "z_score" and events[0].metric_value == 2.5
     assert events[0].current_price == 105.0

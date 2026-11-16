@@ -51,6 +51,15 @@ class SignalState:
     previous: Signal | None
     since: datetime
 
+    @property
+    def baseline(self) -> bool:
+        """The state was recorded when the instance first saw the ticker, not at a change.
+
+        Baseline rows have ``previous_signal == new_signal``; a real
+        transition never does. When the state began is then unknown.
+        """
+        return self.signal == self.previous
+
 
 @dataclass(frozen=True)
 class Transition:
@@ -121,13 +130,13 @@ class SignalStore:
         limit: int = 50,
         offset: int = 0,
     ) -> SignalHistoryPage:
-        """Events newest first, filtered and paginated."""
-        clauses, params = [], {}
+        """Signal changes newest first, filtered and paginated. Baseline rows are excluded."""
+        clauses, params = ["previous_signal IS DISTINCT FROM new_signal"], {}
         for column, value in (("instance_id", instance_id), ("strategy", strategy), ("ticker", ticker)):
             if value is not None:
                 clauses.append(f"{column} = ${column}")
                 params[column] = value
-        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        where = f"WHERE {' AND '.join(clauses)}"
         total = query(f"SELECT count(*) AS n FROM signals {where}", [self._source()], params or None)
         page = query(
             f"SELECT * FROM signals {where} ORDER BY timestamp DESC, id DESC LIMIT $limit OFFSET $offset",

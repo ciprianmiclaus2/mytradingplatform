@@ -77,14 +77,16 @@ function backend(refreshReply: (req: MockRequest) => unknown = () => result(), s
   }
 }
 
-const strategyRegion = () => screen.getByRole('region', { name: 'Strategy' })
-const portfolioRegion = () => screen.getByRole('region', { name: 'Portfolio' })
+// The saved layout is version 1 (before tabs), so these tests also cover its migration.
+const strategyRegion = () => screen.getByRole('tabpanel', { name: 'Mean Reversion · 2 manual tickers' })
+const portfolioRegion = () => screen.getByRole('tabpanel', { name: 'Main Portfolio' })
 
 describe('global refresh', () => {
   it('refreshes once, then reloads every pane and re-runs strategies', async () => {
     saveLayout()
     const { api, holdNext, release } = backend()
     render(<App />)
+    await screen.findByRole('tabpanel', { name: 'Mean Reversion · 2 manual tickers' })
     await within(portfolioRegion()).findByText('100.00')
     await within(strategyRegion()).findAllByText('100.00')
     expect(screen.getByText('Not refreshed yet')).toBeInTheDocument()
@@ -118,6 +120,7 @@ describe('global refresh', () => {
       result({ status: 'partial', tickers_updated: 2, tickers_failed: 1, errors: [{ ticker: 'MSFT', code: 'provider_error', message: 'timeout' }] }),
     )
     render(<App />)
+    await screen.findByRole('tabpanel', { name: 'Mean Reversion · 2 manual tickers' })
     await within(portfolioRegion()).findByText('100.00')
     await userEvent.click(screen.getByRole('button', { name: /Refresh/ }))
     expect(await screen.findByText('1 of 3 tickers failed')).toBeInTheDocument()
@@ -135,6 +138,7 @@ describe('global refresh', () => {
     saveLayout()
     const { api } = backend(() => apiError(409, 'A refresh is already in progress', 'refresh_in_progress'))
     render(<App />)
+    await screen.findByRole('tabpanel', { name: 'Mean Reversion · 2 manual tickers' })
     await within(portfolioRegion()).findByText('100.00')
     const quotesBefore = api.find('GET', '/portfolios/pf-main/quotes').length
     await userEvent.click(screen.getByRole('button', { name: /Refresh/ }))

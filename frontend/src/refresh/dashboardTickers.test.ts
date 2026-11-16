@@ -14,6 +14,7 @@ describe('dashboardExtraTickers', () => {
         pane('d', 'strategy', {}), // not configured yet
         pane('e', 'portfolio', { portfolioId: 'p1', tickers: ['IGNORED'] }),
       ],
+      groups: [],
       layouts: [],
       minimised: {},
     }

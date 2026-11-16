@@ -60,7 +60,7 @@ describe('Dashboard grid integration', () => {
 
     render(<Harness />)
     expect(grid.props!.layout[0]).toMatchObject({ i: a.i, x: 3, y: 2, w: 9, h: 7 })
-    expect(screen.getAllByRole('region')).toHaveLength(2)
+    expect(screen.getAllByRole('tabpanel')).toHaveLength(2)
   })
 
   it('marks minimised panes as not resizable', () => {

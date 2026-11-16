@@ -58,6 +58,8 @@ class BaseStrategy(ABC):
     name: ClassVar[str]
     title: ClassVar[str]
     description: ClassVar[str]
+    # Longer user-facing explanation shown in the UI (see StrategySchema.explanation).
+    explanation: ClassVar[str] = ""
     parameters: ClassVar[tuple[StrategyParameter, ...]] = ()
     outputs: ClassVar[tuple[OutputColumn, ...]] = ()
     # Metric recorded with signal transitions (e.g. "z_score").
@@ -68,6 +70,7 @@ class BaseStrategy(ABC):
             name=self.name,
             title=self.title,
             description=self.description,
+            explanation=self.explanation.strip(),
             parameters=list(self.parameters),
             outputs=list(self.outputs),
         )

@@ -65,7 +65,8 @@ class StrategyEngine:
     # -- discovery -------------------------------------------------------------
 
     def list(self) -> list[StrategySchema]:
-        return self.registry.schemas()
+        """Available strategies, by display title (the order users see)."""
+        return sorted(self.registry.schemas(), key=lambda s: s.title.casefold())
 
     def schema(self, name: str) -> StrategySchema:
         return self._resolve(name).get_config_schema()
@@ -169,6 +170,8 @@ class StrategyEngine:
     ) -> list[TickerResult]:
         """Record signal-state changes and annotate results with their history.
 
+        The first evaluation of a ticker by an instance records a baseline, not
+        a change, so a new pane does not mark every existing signal as new.
         Only successful calculations take part: a ticker with insufficient data
         or an invalid calculation keeps its previous state and is not annotated.
         """
@@ -181,31 +184,28 @@ class StrategyEngine:
                     annotated.append(result)
                     continue
                 state = states.get(result.ticker)
-                current = state.signal if state else None
-                if result.signal != current:
-                    metric = strategy.primary_metric
-                    transitions.append(
-                        Transition(
-                            ticker=result.ticker,
-                            previous=current,
-                            new=result.signal,
-                            metric_name=metric,
-                            metric_value=result.metrics.get(metric) if metric else None,
-                            current_price=result.current_price,
-                        )
-                    )
-                    update = {"previous_signal": current, "signal_changed_at": at, "is_new_signal": True}
-                elif state is not None:
-                    update = {"previous_signal": state.previous, "signal_changed_at": state.since}
-                else:
+                metric = strategy.primary_metric
+                metric_value = result.metrics.get(metric) if metric else None
+                if state is None:
+                    # First time this instance sees the ticker: record a baseline
+                    # (previous == new) so later changes are recognised, but do not
+                    # call the signal new or claim to know when it began.
+                    transitions.append(Transition(result.ticker, result.signal, result.signal, metric,
+                                                  metric_value, result.current_price))
                     update = {}
+                elif result.signal != state.signal:
+                    transitions.append(Transition(result.ticker, state.signal, result.signal, metric,
+                                                  metric_value, result.current_price))
+                    update = {"previous_signal": state.signal, "signal_changed_at": at, "is_new_signal": True}
+                elif state.baseline:
+                    update = {}
+                else:
+                    update = {"previous_signal": state.previous, "signal_changed_at": state.since}
                 annotated.append(result.model_copy(update=update))
             self.signals.record(instance_id, strategy.name, at, transitions)
-        if transitions:
-            logger.info(
-                "signal transitions recorded",
-                extra={"instance_id": instance_id, "transitions": [(t.ticker, t.previous, t.new) for t in transitions]},
-            )
+        changes = [(t.ticker, t.previous, t.new) for t in transitions if t.previous != t.new]
+        if changes:
+            logger.info("signal transitions recorded", extra={"instance_id": instance_id, "transitions": changes})
         return annotated
 
 

@@ -78,6 +78,7 @@ export const meanReversionSchema: StrategySchema = {
   name: 'mean_reversion',
   title: 'Mean Reversion',
   description: 'Z-score of the price against the recent mean.',
+  explanation: 'Mean reversion assumes prices return to their average.\n\n## Signals\n\n- BUY when the z-score is low.\n- SELL when it is high.',
   parameters: [
     { name: 'lookback_days', type: 'integer', title: 'Lookback (sessions)', description: 'Number of sessions', default: 20, minimum: 2, maximum: 500, choices: null },
     { name: 'buy_threshold', type: 'number', title: 'Buy threshold (Z)', description: 'BUY at or below', default: -2, minimum: null, maximum: null, choices: null },

@@ -24,7 +24,7 @@ All persisted data lives under `DATA_DIR`. See the [README](../README.md#data-di
 | `price_history` | `market_data/history/history.parquet` | 1 | `ticker, trading_date` | Derived from `close_prices`. Rebuildable |
 | `portfolios` | `portfolios/portfolios.parquet` | 1 | `id` | Watchlists and positions portfolios |
 | `positions` | `positions/positions.parquet` | 1 | `id` | Open and closed positions |
-| `signals` | `strategies/signals.parquet` | 1 | `id` | Signal transitions per strategy instance and ticker |
+| `signals` | `strategies/signals.parquet` | 1 | `id` | Signal transitions per strategy instance and ticker, plus one baseline row (`previous_signal == new_signal`) when an instance first evaluates a ticker |
 
 ### close_prices / price_history
 

@@ -22,7 +22,7 @@ import statistics
 from typing import Any
 
 from app.strategies.base import BaseStrategy, ConfigValidationError, StrategyMarketData
-from app.strategies.mean_reversion.config import OUTPUTS, PARAMETERS
+from app.strategies.mean_reversion.config import EXPLANATION, OUTPUTS, PARAMETERS
 from app.strategies.models import CalculationStatus, Signal, StrategyOutput
 from app.strategies.registry import register_strategy
 
@@ -32,6 +32,7 @@ class MeanReversionStrategy(BaseStrategy):
     name = "mean_reversion"
     title = "Mean Reversion"
     description = "Z-score of the latest price against the mean and population standard deviation of previous closes"
+    explanation = EXPLANATION
     parameters = PARAMETERS
     outputs = OUTPUTS
     primary_metric = "z_score"

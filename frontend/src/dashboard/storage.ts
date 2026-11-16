@@ -1,7 +1,7 @@
 import { getPaneDefinition } from '../panes/registry'
 import { defaultDashboard } from './defaults'
 import { GRID_COLS, MINIMISED_HEIGHT } from './grid'
-import type { DashboardState, Pane, PaneLayout, StoredDashboard } from './types'
+import type { DashboardState, Pane, PaneGroup, PaneLayout, StoredDashboard } from './types'
 import { LAYOUT_VERSION } from './types'
 
 export const STORAGE_KEY = 'my-trading-platform-layout'
@@ -18,17 +18,41 @@ const isObject = (v: unknown): v is Record<string, unknown> =>
 const isGridInt = (v: unknown, min: number): v is number =>
   typeof v === 'number' && Number.isInteger(v) && v >= min && v < 10_000
 
+const ID_RE = /^[A-Za-z0-9_-]{1,64}$/
+const isId = (v: unknown): v is string => typeof v === 'string' && ID_RE.test(v)
+
 class InvalidLayout extends Error {}
 
 /**
- * Validate a stored document. Structural problems (wrong version, wrong
- * shapes) reject the whole document; individual panes that are unusable
- * (unknown type, bad layout) are dropped with a warning.
+ * Version 1 had one pane per tile: layouts and minimised were keyed by pane id.
+ * Each pane becomes a group of one, keyed `group-<pane id>`.
  */
-export function parseStoredDashboard(raw: unknown): { state: DashboardState; dropped: number } {
-  if (!isObject(raw)) throw new InvalidLayout('not an object')
-  if (raw.version !== LAYOUT_VERSION) throw new InvalidLayout(`unsupported version ${String(raw.version)}`)
+function migrateV1(raw: Record<string, unknown>): Record<string, unknown> {
   if (!Array.isArray(raw.panes) || !Array.isArray(raw.layouts)) throw new InvalidLayout('panes/layouts missing')
+  const groupIdFor = (paneId: string) => `group-${paneId}`.slice(0, 64)
+  const panes = raw.panes.filter(isObject)
+  const minimised = isObject(raw.minimised) ? raw.minimised : {}
+  return {
+    version: LAYOUT_VERSION,
+    panes: raw.panes,
+    groups: panes.filter((p) => isId(p.id)).map((p) => ({ id: groupIdFor(p.id as string), paneIds: [p.id], active: p.id })),
+    layouts: raw.layouts.filter(isObject).map((l) => (typeof l.i === 'string' ? { ...l, i: groupIdFor(l.i) } : l)),
+    minimised: Object.fromEntries(Object.entries(minimised).map(([id, h]) => [groupIdFor(id), h])),
+  }
+}
+
+/**
+ * Validate a stored document. Structural problems (unknown version, wrong
+ * shapes) reject the whole document; individual panes that are unusable
+ * (unknown type, bad id, not in a valid tile) are dropped and counted.
+ */
+export function parseStoredDashboard(input: unknown): { state: DashboardState; dropped: number } {
+  if (!isObject(input)) throw new InvalidLayout('not an object')
+  const raw = input.version === 1 ? migrateV1(input) : input
+  if (raw.version !== LAYOUT_VERSION) throw new InvalidLayout(`unsupported version ${String(raw.version)}`)
+  if (!Array.isArray(raw.panes) || !Array.isArray(raw.groups) || !Array.isArray(raw.layouts)) {
+    throw new InvalidLayout('panes/groups/layouts missing')
+  }
   const minimisedRaw = raw.minimised === undefined ? {} : raw.minimised
   if (!isObject(minimisedRaw)) throw new InvalidLayout('minimised is not an object')
 
@@ -41,39 +65,52 @@ export function parseStoredDashboard(raw: unknown): { state: DashboardState; dro
     }
   }
 
-  const panes: Pane[] = []
-  const layouts: PaneLayout[] = []
-  const minimised: Record<string, number> = {}
-  const seen = new Set<string>()
-  let dropped = 0
+  // Valid panes, by id.
+  const paneById = new Map<string, Pane>()
+  let candidates = 0
   for (const item of raw.panes) {
-    const valid =
+    candidates += 1
+    if (
       isObject(item) &&
-      typeof item.id === 'string' &&
-      /^[A-Za-z0-9_-]{1,64}$/.test(item.id) &&
-      !seen.has(item.id) &&
+      isId(item.id) &&
+      !paneById.has(item.id) &&
       typeof item.type === 'string' &&
       getPaneDefinition(item.type) !== undefined &&
       typeof item.title === 'string' &&
-      isObject(item.config) &&
-      layoutsById.has(item.id)
-    if (!valid) {
-      dropped += 1
-      continue
+      isObject(item.config)
+    ) {
+      paneById.set(item.id, { id: item.id, type: item.type, title: item.title, config: item.config })
     }
-    const pane = item as unknown as Pane
-    seen.add(pane.id)
-    panes.push({ id: pane.id, type: pane.type, title: pane.title, config: pane.config })
-    const layout = layoutsById.get(pane.id)!
-    const restore = minimisedRaw[pane.id]
+  }
+
+  // Groups: known, unassigned panes only; each needs a valid tile.
+  const groups: PaneGroup[] = []
+  const layouts: PaneLayout[] = []
+  const minimised: Record<string, number> = {}
+  const assigned = new Set<string>()
+  const groupIds = new Set<string>()
+  for (const item of raw.groups) {
+    if (!isObject(item) || !isId(item.id) || groupIds.has(item.id) || !Array.isArray(item.paneIds)) continue
+    const layout = layoutsById.get(item.id)
+    if (!layout) continue
+    const paneIds = item.paneIds.filter((id): id is string => typeof id === 'string' && paneById.has(id) && !assigned.has(id))
+    if (paneIds.length === 0) continue
+    paneIds.forEach((id) => assigned.add(id))
+    groupIds.add(item.id)
+    const active = typeof item.active === 'string' && paneIds.includes(item.active) ? item.active : paneIds[0]
+    groups.push({ id: item.id, paneIds, active })
+    const restore = minimisedRaw[item.id]
     if (isGridInt(restore, 1)) {
-      minimised[pane.id] = restore
+      minimised[item.id] = restore
       layouts.push({ ...layout, h: MINIMISED_HEIGHT })
     } else {
       layouts.push(layout)
     }
   }
-  return { state: { panes, layouts, minimised }, dropped }
+
+  // Panes in tab order of their groups; anything not in a valid group is dropped.
+  const panes = groups.flatMap((g) => g.paneIds.map((id) => paneById.get(id)!))
+  return { state: { panes, groups, layouts, minimised }, dropped: candidates - panes.length }
 }
 
 function getStorage(): Storage | null {

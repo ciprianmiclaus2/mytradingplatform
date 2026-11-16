@@ -186,4 +186,50 @@ describe('StrategyPane', () => {
     await waitFor(() => expect(screen.queryByText('Market data unavailable')).not.toBeInTheDocument())
     expect(screen.getByText('AAPL')).toBeInTheDocument()
   })
+
+  it('explains the strategy in the settings form', async () => {
+    setup()
+    renderPane(StrategyPane)
+    const summary = await screen.findByText('How this strategy works')
+    await userEvent.click(summary)
+    const details = summary.closest('details')!
+    expect(details).toHaveAttribute('open')
+    expect(within(details).getByRole('heading', { name: 'Signals' })).toBeInTheDocument()
+    expect(within(details).getByText('BUY when the z-score is low.')).toBeInTheDocument()
+  })
+
+  it('shows the explanation and current settings from the About button', async () => {
+    setup()
+    renderPane(StrategyPane, { config: savedConfig })
+    await screen.findByText('Insufficient data')
+    await userEvent.click(screen.getByRole('button', { name: 'About Mean Reversion' }))
+    const dialog = screen.getByRole('dialog', { name: 'Mean Reversion: how it works' })
+    expect(dialog).toHaveFocus() // opens at the top, not scrolled to the Close button
+    expect(within(dialog).getByText(/Mean reversion assumes prices return/)).toBeInTheDocument()
+    expect(within(dialog).getByText(/This pane's settings: Lookback \(sessions\): 20/)).toBeInTheDocument()
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('formats integer metrics without decimals and blanks missing values', async () => {
+    const schema = {
+      ...meanReversionSchema,
+      outputs: [{ name: 'sessions_since_cross', title: 'Since Cross', format: 'integer' as const, description: '' }],
+    }
+    setup({
+      'GET /strategies': [schema],
+      'POST /strategies/mean_reversion/run': {
+        strategy: 'mean_reversion', instance_id: 'pane-1', config: {}, calculated_at: '2026-11-16T12:00:00Z',
+        results: [
+          tickerResult('AAPL', { metrics: { sessions_since_cross: 3 } }),
+          tickerResult('MSFT', { metrics: { sessions_since_cross: null } }),
+        ],
+      },
+    })
+    renderPane(StrategyPane, { config: savedConfig })
+    const cell = (t: string) => within(screen.getByText(t).closest('tr')!).getAllByRole('cell')[4].textContent
+    await screen.findByText('MSFT')
+    expect(cell('AAPL')).toBe('3')
+    expect(cell('MSFT')).toBe('—')
+  })
 })

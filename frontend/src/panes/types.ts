@@ -1,5 +1,6 @@
 import type { ComponentType } from 'react'
 import type { Pane } from '../dashboard/types'
+import type { Portfolio, StrategySchema } from '../types/api'
 
 export interface PaneProps {
   pane: Pane
@@ -16,4 +17,15 @@ export interface PaneDefinition {
   defaultSize: { w: number; h: number }
   minSize: { w: number; h: number }
   defaultConfig: () => Record<string, unknown>
+  /**
+   * Automatic tab label from the pane's configuration, e.g. "RSI · Main Portfolio".
+   * Return undefined when it cannot be worked out yet; the pane title is used instead.
+   */
+  label?: (pane: Pane, data: LabelData) => string | undefined
+}
+
+/** Backend data available for building labels (undefined while loading). */
+export interface LabelData {
+  portfolios: Portfolio[] | undefined
+  strategies: StrategySchema[] | undefined
 }

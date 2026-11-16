@@ -13,6 +13,7 @@ import {
   type TickerSource,
 } from './config'
 import { StrategyConfigForm } from './StrategyConfigForm'
+import { StrategyExplanation } from './StrategyExplanation'
 
 interface Props {
   strategies: StrategySchema[]
@@ -116,6 +117,12 @@ export function StrategySetup({ strategies, portfolios, initial, onSave, onCance
           ))}
         </select>
         {schema && <p className="mt-1 text-xs text-slate-500">{schema.description}</p>}
+        {schema?.explanation && (
+          <details key={schema.name} className="mt-2 max-w-3xl rounded border border-slate-200 bg-slate-50 px-3 py-2">
+            <summary className="cursor-pointer text-sm font-medium text-slate-700">How this strategy works</summary>
+            <StrategyExplanation text={schema.explanation} />
+          </details>
+        )}
       </div>
 
       {schema && (

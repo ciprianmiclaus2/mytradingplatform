@@ -1,9 +1,13 @@
 import { createPane } from './reducer'
 import type { DashboardState } from './types'
 
+export function emptyDashboard(): DashboardState {
+  return { panes: [], groups: [], layouts: [], minimised: {} }
+}
+
 /** Layout used on first start, after a reset, or when the saved layout is unusable. */
 export function defaultDashboard(): DashboardState {
-  let state: DashboardState = { panes: [], layouts: [], minimised: {} }
+  let state = emptyDashboard()
   state = createPane(state, 'portfolio')
   state = createPane(state, 'positions')
   // Place the first two panes side by side.

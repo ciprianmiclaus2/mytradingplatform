@@ -1,19 +1,18 @@
 import { useState } from 'react'
-import { listStrategies, runStrategy } from '../../api/strategies'
+import { runStrategy } from '../../api/strategies'
 import { DataGrid, type Column } from '../../components/DataGrid'
-import { buttonClass } from '../../components/Modal'
+import { buttonClass, Modal } from '../../components/Modal'
 import { useApiData } from '../../hooks/useApiData'
 import { usePortfolios } from '../../hooks/usePortfolios'
+import { useStrategies } from '../../hooks/useStrategies'
 import type { CalculationStatus, OutputColumn, Portfolio, StrategySchema, TickerResult } from '../../types/api'
 import { formatNumber, formatPercent, formatPrice, formatSigned, formatTime, gainLossClass } from '../../utils/format'
 import { PaneMessage, PaneToolbar, StaleMarker } from '../common'
 import type { PaneProps } from '../types'
 import { describeSource, readStrategyConfig, resolveTickers, type StrategyPaneConfig } from './config'
+import { StrategyExplanation } from './StrategyExplanation'
 import { StrategySetup } from './StrategySetup'
 
-function useStrategies() {
-  return useApiData('strategies', listStrategies)
-}
 
 /** Runs a configured strategy over its tickers and shows metrics and signals. */
 export function StrategyPane({ pane, onConfigChange }: PaneProps) {
@@ -89,6 +88,8 @@ function formatMetric(value: number | null | undefined, format: OutputColumn['fo
       return formatPrice(value)
     case 'percent':
       return formatPercent(value)
+    case 'integer':
+      return formatNumber(value, 0)
     case 'text':
       return value === null || value === undefined ? '—' : String(value)
     default:
@@ -98,7 +99,10 @@ function formatMetric(value: number | null | undefined, format: OutputColumn['fo
 
 function settingsSummary(schema: StrategySchema, config: StrategyPaneConfig): string {
   return schema.parameters
-    .map((p) => `${p.title}: ${String(config.params[p.name] ?? p.default)}`)
+    .map((p) => {
+      const value = config.params[p.name] ?? p.default
+      return `${p.title}: ${typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value)}`
+    })
     .join(' · ')
 }
 
@@ -111,6 +115,7 @@ interface ResultsProps {
 }
 
 function StrategyResults({ paneId, config, schema, portfolios, onEdit }: ResultsProps) {
+  const [showAbout, setShowAbout] = useState(false)
   const { tickers, error: sourceError } = resolveTickers(config.source, portfolios)
   // Re-run whenever the strategy, its settings or the resolved tickers change.
   const runKey = tickers.length > 0 ? JSON.stringify([paneId, config.strategy, config.params, tickers]) : null
@@ -205,10 +210,26 @@ function StrategyResults({ paneId, config, schema, portfolios, onEdit }: Results
         <button type="button" onClick={run.reload} disabled={!runKey || run.loading} className={buttonClass} aria-label="Recalculate">
           ↻
         </button>
+        <button type="button" onClick={() => setShowAbout(true)} className={buttonClass} aria-label={`About ${schema.title}`} title="How this strategy works">
+          About
+        </button>
         <button type="button" onClick={onEdit} className={buttonClass}>
           Settings
         </button>
       </PaneToolbar>
+      {showAbout && (
+        <Modal title={`${schema.title}: how it works`} onClose={() => setShowAbout(false)} wide>
+          <StrategyExplanation text={schema.explanation} />
+          <p className="mt-4 border-t border-slate-200 pt-2 text-xs text-slate-500">
+            This pane's settings: {settingsSummary(schema, config)}. Signals describe current conditions and are not trading advice.
+          </p>
+          <div className="mt-4 flex justify-end">
+            <button type="button" onClick={() => setShowAbout(false)} className={buttonClass}>
+              Close
+            </button>
+          </div>
+        </Modal>
+      )}
       <div className="min-h-0 flex-1">
         <DataGrid
           label={`${schema.title} results`}

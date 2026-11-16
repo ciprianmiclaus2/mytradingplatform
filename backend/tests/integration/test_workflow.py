@@ -79,12 +79,15 @@ def test_complete_workflow_survives_restart_and_restore(settings: Settings, data
         # Strategy on the positions portfolio (open positions only), lookback 10.
         positions_tickers = api.get(f"/api/portfolios/{pos}").json()["tickers"]
         assert positions_tickers == ["AAPL", "VOD.L"]
+        before = api.post("/api/strategies/mean_reversion/run",
+                          json={"tickers": positions_tickers, "config": {"lookback_days": 10}, "instance_id": "pane-wf"}).json()
+        assert {r["ticker"]: r["signal"] for r in before["results"]}["AAPL"] is None  # baseline: no signal
         provider.set_quote("AAPL", 95.0, previous_close=100.0, timestamp=now + timedelta(seconds=1))
         assert api.post("/api/market-data/refresh").json()["status"] == "completed"
         run = api.post("/api/strategies/mean_reversion/run",
                        json={"tickers": positions_tickers, "config": {"lookback_days": 10}, "instance_id": "pane-wf"}).json()
         results = {r["ticker"]: r for r in run["results"]}
-        assert results["AAPL"]["status"] == "OK" and results["AAPL"]["signal"] == "BUY"
+        assert results["AAPL"]["status"] == "OK" and results["AAPL"]["signal"] == "BUY" and results["AAPL"]["is_new_signal"]
         assert results["AAPL"]["metrics"]["mean"] == pytest.approx(100.0)
         assert results["AAPL"]["metrics"]["z_score"] == pytest.approx(-2.5)
         assert results["VOD.L"]["status"] == "INSUFFICIENT_DATA"  # no history in the fake provider

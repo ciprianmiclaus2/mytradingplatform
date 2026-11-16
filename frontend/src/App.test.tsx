@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
@@ -23,7 +23,12 @@ const healthy = () =>
     },
   })
 
-const paneTitles = () => screen.getAllByRole('region').map((r) => r.getAttribute('aria-label'))
+const PORTFOLIO = 'Main Portfolio'
+const POSITIONS = 'Positions · Main Positions'
+/** Labels of all tabs, in tile order (automatic names once data has loaded). */
+const tabLabels = () => screen.queryAllByRole('tab').map((t) => t.textContent)
+const expectTabs = (labels: string[]) => waitFor(() => expect(tabLabels()).toEqual(labels))
+const panel = (label: string) => screen.getByRole('tabpanel', { name: label })
 const saved = () => JSON.parse(window.localStorage.getItem(STORAGE_KEY)!)
 
 describe('App', () => {
@@ -55,10 +60,13 @@ describe('App', () => {
     expect(api.find('GET', '/health')).toHaveLength(2)
   })
 
-  it('starts with the default dashboard and saves it', () => {
+  it('starts with the default dashboard, with automatic tab names, and saves it', async () => {
     render(<App />)
-    expect(paneTitles()).toEqual(['Portfolio', 'Positions'])
+    expect(tabLabels()).toEqual(['Portfolio', 'Positions']) // before data: the pane titles
+    await expectTabs([PORTFOLIO, POSITIONS])
+    expect(saved().version).toBe(2)
     expect(saved().panes.map((p: { type: string }) => p.type)).toEqual(['portfolio', 'positions'])
+    expect(saved().groups).toHaveLength(2)
   })
 
   it('adds multiple panes, including several of the same type', async () => {
@@ -67,31 +75,98 @@ describe('App', () => {
       await userEvent.click(screen.getByRole('button', { name: /Add pane/ }))
       await userEvent.click(screen.getByRole('menuitem', { name: /Strategy/ }))
     }
-    expect(paneTitles()).toEqual(['Portfolio', 'Positions', 'Strategy', 'Strategy 2'])
+    await expectTabs([PORTFOLIO, POSITIONS, 'New strategy', 'New strategy'])
     expect(saved().panes).toHaveLength(4)
     expect(saved().layouts).toHaveLength(4)
   })
 
   it('removes a pane only after confirmation', async () => {
     render(<App />)
-    await userEvent.click(screen.getByRole('button', { name: 'Remove Positions' }))
+    await expectTabs([PORTFOLIO, POSITIONS])
+    await userEvent.click(screen.getByRole('button', { name: `Remove ${POSITIONS}` }))
     const dialog = screen.getByRole('dialog')
     await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
-    expect(paneTitles()).toEqual(['Portfolio', 'Positions'])
+    expect(tabLabels()).toEqual([PORTFOLIO, POSITIONS])
 
-    await userEvent.click(screen.getByRole('button', { name: 'Remove Positions' }))
+    await userEvent.click(screen.getByRole('button', { name: `Remove ${POSITIONS}` }))
     await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove' }))
-    expect(paneTitles()).toEqual(['Portfolio'])
+    expect(tabLabels()).toEqual([PORTFOLIO])
     expect(saved().panes).toHaveLength(1)
   })
 
   it('shows an empty state when all panes are removed', async () => {
     render(<App />)
-    for (const title of ['Portfolio', 'Positions']) {
-      await userEvent.click(screen.getByRole('button', { name: `Remove ${title}` }))
+    await expectTabs([PORTFOLIO, POSITIONS])
+    for (const label of [PORTFOLIO, POSITIONS]) {
+      await userEvent.click(screen.getByRole('button', { name: `Remove ${label}` }))
       await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove' }))
     }
     expect(screen.getByText(/The dashboard is empty/)).toBeInTheDocument()
+  })
+
+  it('moves a pane into another tile as a tab, switches tabs, and detaches it again', async () => {
+    render(<App />)
+    await expectTabs([PORTFOLIO, POSITIONS])
+    await userEvent.click(screen.getByRole('button', { name: `Tab options for ${POSITIONS}` }))
+    await userEvent.click(screen.getByRole('menuitem', { name: `Move “${POSITIONS}” to: ${PORTFOLIO}` }))
+
+    // One tile with two tabs; the moved pane is active.
+    expect(saved().groups).toHaveLength(1)
+    expect(saved().layouts).toHaveLength(1)
+    const tablist = screen.getByRole('tablist')
+    expect(within(tablist).getAllByRole('tab').map((t) => t.textContent)).toEqual([PORTFOLIO, POSITIONS])
+    expect(screen.getByRole('tab', { name: POSITIONS })).toHaveAttribute('aria-selected', 'true')
+    expect(panel(POSITIONS)).toBeVisible()
+    expect(screen.queryByRole('tabpanel', { name: PORTFOLIO })).not.toBeInTheDocument() // hidden, still mounted
+    expect(screen.getByText('190.50', { ignore: false })).not.toBeVisible()
+
+    await userEvent.click(screen.getByRole('tab', { name: PORTFOLIO }))
+    expect(within(panel(PORTFOLIO)).getByText('190.50')).toBeVisible()
+    expect(saved().groups[0].active).toBe(saved().panes[0].id)
+
+    // Keyboard: arrow keys move between tabs.
+    screen.getByRole('tab', { name: PORTFOLIO }).focus()
+    await userEvent.keyboard('{ArrowRight}')
+    expect(screen.getByRole('tab', { name: POSITIONS })).toHaveFocus()
+    expect(screen.getByRole('tab', { name: POSITIONS })).toHaveAttribute('aria-selected', 'true')
+
+    await userEvent.click(screen.getByRole('button', { name: `Tab options for ${POSITIONS}` }))
+    await userEvent.click(screen.getByRole('menuitem', { name: `Detach “${POSITIONS}” into its own pane` }))
+    expect(saved().groups).toHaveLength(2)
+    expect(screen.getAllByRole('tablist')).toHaveLength(2)
+  })
+
+  it('reorders tabs by dragging within the tab bar', async () => {
+    render(<App />)
+    await expectTabs([PORTFOLIO, POSITIONS])
+    await userEvent.click(screen.getByRole('button', { name: `Tab options for ${POSITIONS}` }))
+    await userEvent.click(screen.getByRole('menuitem', { name: `Move “${POSITIONS}” to: ${PORTFOLIO}` }))
+    const [first, second] = within(screen.getByRole('tablist')).getAllByRole('tab').map((t) => t.parentElement!)
+    const data = new Map<string, string>()
+    const dataTransfer = { setData: (k: string, v: string) => data.set(k, v), getData: (k: string) => data.get(k), effectAllowed: '' }
+    vi.spyOn(first, 'getBoundingClientRect').mockReturnValue({ left: 0, width: 100 } as DOMRect)
+    fireEvent.dragStart(second, { dataTransfer })
+    // jsdom drag events have no pointer position, so set it: the left half of the first tab.
+    const over = createEvent.dragOver(first, { dataTransfer })
+    Object.defineProperty(over, 'clientX', { value: 10 })
+    fireEvent(first, over)
+    fireEvent.drop(screen.getByRole('tablist'), { dataTransfer })
+    expect(within(screen.getByRole('tablist')).getAllByRole('tab').map((t) => t.textContent)).toEqual([POSITIONS, PORTFOLIO])
+    const ids = saved().panes.map((p: { id: string; type: string }) => p)
+    expect(saved().groups[0].paneIds).toEqual([ids[1].id, ids[0].id])
+  })
+
+  it('numbers identical tab names within a tile', async () => {
+    render(<App />)
+    for (let i = 0; i < 2; i++) {
+      await userEvent.click(screen.getByRole('button', { name: /Add pane/ }))
+      await userEvent.click(screen.getByRole('menuitem', { name: /Strategy/ }))
+    }
+    await expectTabs([PORTFOLIO, POSITIONS, 'New strategy', 'New strategy'])
+    const options = screen.getAllByRole('button', { name: 'Tab options for New strategy' })
+    await userEvent.click(options[1])
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Move “New strategy” to: New strategy' }))
+    await expectTabs([PORTFOLIO, POSITIONS, 'New strategy', 'New strategy (2)'])
   })
 
   it('shows real data in the default panes', async () => {
@@ -136,21 +211,24 @@ describe('App', () => {
   it('keeps the selected portfolio after a refresh', async () => {
     const first = render(<App />)
     await screen.findByText('190.50')
-    const picker = within(screen.getByRole('region', { name: 'Portfolio' })).getByRole('combobox', { name: 'Portfolio' })
+    const picker = within(panel(PORTFOLIO)).getByRole('combobox', { name: 'Portfolio' })
     await userEvent.selectOptions(picker, 'pf-pos')
+    await expectTabs(['Main Positions', POSITIONS]) // the tab name follows the selection
     first.unmount()
     render(<App />)
-    const region = screen.getByRole('region', { name: 'Portfolio' })
-    await waitFor(() => expect(within(region).getByRole('combobox', { name: 'Portfolio' })).toHaveValue('pf-pos'))
+    await expectTabs(['Main Positions', POSITIONS])
+    expect(within(panel('Main Positions')).getByRole('combobox', { name: 'Portfolio' })).toHaveValue('pf-pos')
   })
 
   it('minimises and restores a pane', async () => {
     render(<App />)
     await screen.findByText('190.50')
-    await userEvent.click(screen.getByRole('button', { name: 'Minimise Portfolio' }))
+    await expectTabs([PORTFOLIO, POSITIONS])
+    await userEvent.click(screen.getByRole('button', { name: `Minimise ${PORTFOLIO}` }))
     expect(screen.queryByRole('table', { name: 'Main Portfolio prices' })).not.toBeInTheDocument()
     expect(Object.values(saved().minimised)).toEqual([10])
-    await userEvent.click(screen.getByRole('button', { name: 'Restore Portfolio' }))
+    expect(screen.getByRole('tab', { name: PORTFOLIO })).toBeInTheDocument() // the tab bar stays
+    await userEvent.click(screen.getByRole('button', { name: `Restore ${PORTFOLIO}` }))
     expect(await screen.findByRole('table', { name: 'Main Portfolio prices' })).toBeInTheDocument()
   })
 
@@ -162,7 +240,7 @@ describe('App', () => {
     first.unmount()
 
     render(<App />)
-    expect(paneTitles()).toEqual(['Portfolio', 'Positions', 'Strategy'])
+    await expectTabs([PORTFOLIO, POSITIONS, 'New strategy'])
     expect(saved().panes.map((p: { id: string }) => p.id)).toEqual(ids)
   })
 
@@ -173,7 +251,7 @@ describe('App', () => {
     await userEvent.click(screen.getByRole('button', { name: /Menu/ }))
     await userEvent.click(screen.getByRole('menuitem', { name: /Reset layout/ }))
     await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Reset' }))
-    expect(paneTitles()).toEqual(['Portfolio', 'Positions'])
+    await expectTabs([PORTFOLIO, POSITIONS])
     expect(saved().panes).toHaveLength(2)
   })
 
@@ -181,7 +259,7 @@ describe('App', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     window.localStorage.setItem(STORAGE_KEY, '{"version":1,"panes":"broken"')
     render(<App />)
-    expect(paneTitles()).toEqual(['Portfolio', 'Positions'])
+    await expectTabs([PORTFOLIO, POSITIONS])
     expect(screen.getByText(/Saved layout was invalid/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
     expect(screen.queryByText(/Saved layout was invalid/)).not.toBeInTheDocument()

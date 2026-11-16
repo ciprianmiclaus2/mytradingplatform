@@ -10,6 +10,7 @@ FRONTEND="$ROOT/frontend"
 VENV="$BACKEND/.venv"
 BACKEND_PORT="${APP_PORT:-8000}"
 BACKEND_HOST="${APP_HOST:-127.0.0.1}"
+FRONTEND_PORT="${FRONTEND_PORT:-5173}"
 
 log() { printf '\033[1;34m[start]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[start]\033[0m %s\n' "$*" >&2; exit 1; }
@@ -39,6 +40,15 @@ if [ ! -d "$FRONTEND/node_modules" ] || [ "$FRONTEND/package-lock.json" -nt "$FR
   (cd "$FRONTEND" && npm install --no-fund --no-audit)
 fi
 
+# --- Ports must be free ---------------------------------------------------------
+# Otherwise the health check below could be answered by another instance
+# (e.g. a second ./start.sh), and the new frontend would talk to its data.
+port_in_use() { (exec 3<>"/dev/tcp/$1/$2") 2>/dev/null; }
+port_in_use "$BACKEND_HOST" "$BACKEND_PORT" \
+  && die "Port $BACKEND_PORT is already in use (is the app already running?). Stop it, or set APP_PORT."
+port_in_use 127.0.0.1 "$FRONTEND_PORT" \
+  && die "Port $FRONTEND_PORT is already in use (is the app already running?). Stop it, or set FRONTEND_PORT."
+
 # --- Run ----------------------------------------------------------------------
 # On Ctrl+C or exit, stop everything this script started.
 trap 'trap - INT TERM EXIT; log "Stopping..."; kill 0 2>/dev/null; wait' INT TERM EXIT
@@ -56,7 +66,7 @@ curl -sf --noproxy "*" "http://$BACKEND_HOST:$BACKEND_PORT/api/health" >/dev/nul
 
 export VITE_BACKEND_URL="${VITE_BACKEND_URL:-http://$BACKEND_HOST:$BACKEND_PORT}"
 log "Starting frontend..."
-(cd "$FRONTEND" && npm run dev -- --clearScreen false 2>&1 | sed -u 's/^/[frontend] /') &
+(cd "$FRONTEND" && npm run dev -- --clearScreen false --port "$FRONTEND_PORT" --strictPort 2>&1 | sed -u 's/^/[frontend] /') &
 
-log "Ready: open http://127.0.0.1:5173  (API docs: http://$BACKEND_HOST:$BACKEND_PORT/api/docs). Ctrl+C to stop."
+log "Ready: open http://127.0.0.1:$FRONTEND_PORT  (API docs: http://$BACKEND_HOST:$BACKEND_PORT/api/docs). Ctrl+C to stop."
 wait

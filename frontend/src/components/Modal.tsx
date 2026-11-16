@@ -4,15 +4,21 @@ interface Props {
   title: string
   children: ReactNode
   onClose: () => void
+  /** Wider panel for reading text. */
+  wide?: boolean
 }
 
 /** Modal dialog shell. Escape or a click on the backdrop closes it. */
-export function Modal({ title, children, onClose }: Props) {
+export function Modal({ title, children, onClose, wide = false }: Props) {
   const titleId = useId()
   const panelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    panelRef.current?.querySelector<HTMLElement>('input, select, textarea, button')?.focus()
+    // Forms: focus the first field. Reading dialogs: focus the panel, so it opens at the top.
+    const panel = panelRef.current
+    const field = panel?.querySelector<HTMLElement>('input, select, textarea')
+    if (field) field.focus()
+    else panel?.focus({ preventScroll: true })
   }, [])
 
   useEffect(() => {
@@ -28,9 +34,10 @@ export function Modal({ title, children, onClose }: Props) {
       <div
         ref={panelRef}
         role="dialog"
+        tabIndex={-1}
         aria-modal="true"
         aria-labelledby={titleId}
-        className="max-h-full w-full max-w-md overflow-auto rounded-lg bg-white p-5 shadow-xl"
+        className={`max-h-full w-full overflow-auto rounded-lg bg-white p-5 shadow-xl outline-none ${wide ? 'max-w-2xl' : 'max-w-md'}`}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <h2 id={titleId} className="text-base font-semibold text-slate-900">
