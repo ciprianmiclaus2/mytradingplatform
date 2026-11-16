@@ -2,7 +2,7 @@
 
 A locally hosted, single-user signal-generation dashboard. It monitors watchlists of ticker symbols, displays held positions with their P&L, and runs configurable strategies such as mean reversion. All data is stored in local Parquet files. It never places real trades and does no accounting.
 
-> **Status:** Phases 1–4 (project foundation, persistence, market data, portfolios) are complete. See
+> **Status:** Phases 1–5 (backend: project foundation, persistence, market data, portfolios, positions) are complete. See
 > [docs/MyTradingPlatform_v1_ImplementationPlan.md](docs/MyTradingPlatform_v1_ImplementationPlan.md)
 > for the full V1 plan.
 
@@ -138,6 +138,7 @@ $DATA_DIR/
 ├── portfolios/
 │   └── portfolios.parquet   watchlists and positions portfolios
 ├── positions/
+│   └── positions.parquet    open and closed positions
 ├── strategies/
 ├── backups/
 └── metadata/

@@ -78,7 +78,7 @@ In Phase 10, refresh will also collect tickers from portfolios, positions and st
 A portfolio is a named watchlist of type `watchlist` or `positions`.
 
 - On first startup, "Main Portfolio" (watchlist) and "Main Positions" are created.
-- A `positions` portfolio's `tickers` are the tickers of its open positions and are read-only (positions arrive in Phase 5).
+- A `positions` portfolio's `tickers` are the tickers of its open positions and are read-only.
 
 | Endpoint | Method | Purpose |
 |---|---|---|
@@ -126,3 +126,69 @@ Other errors:
  "daily_change": 1.39, "daily_change_pct": 0.39, "timestamp": "2026-11-13T21:00:01Z",
  "delayed": true, "stale": false, "last_error": null}
 ```
+
+## Positions
+
+Positions are informational records. There is no ledger and no cash. Each one belongs to a `positions` portfolio.
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/portfolios/{id}/positions?status=all\|open\|closed` | GET | Positions with calculated metrics, plus per-currency `totals`. The filter defaults to `all`; totals always cover the whole portfolio |
+| `/api/portfolios/{id}/positions` | POST | Create position. Returns 201 |
+| `/api/positions/{id}` | GET | Retrieve position |
+| `/api/positions/{id}` | PUT | Edit in place. Only the fields sent are changed |
+| `/api/positions/{id}/close` | POST | Close the whole position: `{"exit_price"?, "exit_date"?}`. The body is optional |
+| `/api/positions/{id}` | DELETE | Delete an open or closed position, after taking a backup. Returns 204 |
+
+### Creating a position
+
+Request body: `{"ticker", "quantity", "entry_price"?, "entry_date"?, "notes"?}`.
+
+- **Ticker:** checked like a watchlist ticker. An unknown ticker gets `422 invalid_ticker`; if the provider is down and no price is stored, the response is `502`.
+- **Currency:** taken from the quote, and never converted. Prices are in the quote's units, e.g. pence for `GBp`.
+- **Defaults:** `entry_price` defaults to the latest available price, and `entry_date` to today (UTC).
+- **One open position per ticker:** a second open position for the same ticker in the same portfolio gets `409`. Edit the quantity and entry price instead. Once a position is closed, its ticker can be opened again.
+
+### Numbers and dates
+
+- **Numbers:** `quantity` and prices must be greater than 0, with at most 8 decimal places and 12 integer digits. They can be sent as JSON numbers or as strings.
+- **Dates:** can't be in the future, and `exit_date` can't be before `entry_date`.
+
+### Editing a position
+
+- **Open positions:** `quantity`, `entry_price`, `entry_date` (send `null` to clear it) and `notes`.
+- **Closed positions:** `exit_price`, `exit_date` and `notes`.
+- Changing any other field returns `400`.
+
+### Closing a position
+
+- `exit_price` defaults to the latest available price. If there's none, the response is `400`, asking for one.
+- `exit_date` defaults to today (UTC).
+- Closing an already closed position returns `409`.
+- Closing or deleting a position also removes its ticker from the portfolio's favourites.
+
+### Position (response)
+
+All values are calculated in the backend.
+
+```json
+{"id": "...", "portfolio_id": "...", "ticker": "AAPL", "currency": "USD", "status": "OPEN",
+ "quantity": 20, "entry_price": 210, "entry_date": "2026-01-05", "notes": "", "cost_basis": 4200,
+ "current_price": 215.42, "previous_close": 218.10, "price_timestamp": "...",
+ "market_value": 4308.4, "unrealised_pnl": 108.4, "unrealised_pnl_pct": 2.58,
+ "daily_change": -2.68, "daily_change_pct": -1.23, "daily_pnl": -53.6, "stale": false,
+ "exit_price": null, "exit_date": null, "realised_pnl": null, "realised_pnl_pct": null,
+ "created_at": "...", "updated_at": "..."}
+```
+
+- **Open positions** fill the market fields. These are `null` when there is no stored price in the position's currency.
+- **Closed positions** fill `exit_price`, `exit_date`, `realised_pnl` and `realised_pnl_pct`.
+
+### Totals (one per currency, never combined)
+
+```json
+{"currency": "USD", "open_positions": 1, "closed_positions": 1, "market_value": 2627.6, "cost_basis": 2627.6,
+ "unrealised_pnl": 0.0, "unrealised_pnl_pct": 0.0, "daily_pnl": 8.2, "realised_pnl": 500.0, "incomplete": false}
+```
+
+`incomplete` is `true` when some open positions have no current price or previous close. In that case the market totals cover only the positions that have prices, while `cost_basis` always covers all open positions.

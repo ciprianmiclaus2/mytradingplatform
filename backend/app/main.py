@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
-from app.api import health, market_data, portfolios
+from app.api import health, market_data, portfolios, positions
 from app.config import Settings, get_settings
 from app.datasets import load_dataset_modules
 from app.market_data.base import BaseMarketDataProvider
@@ -20,6 +20,8 @@ from app.logging_config import configure_logging
 from app.persistence import open_persistence
 from app.portfolio.repository import PortfolioRepository
 from app.portfolio.service import PortfolioService
+from app.positions.repository import PositionRepository
+from app.positions.service import PositionService
 from app.schemas.errors import register_error_handlers
 
 logger = logging.getLogger(__name__)
@@ -54,6 +56,12 @@ def create_app(
         )
         app.state.portfolios = PortfolioService(
             PortfolioRepository(persistence.store), app.state.market_data, persistence.backups
+        )
+        app.state.positions = PositionService(
+            PositionRepository(persistence.store),
+            app.state.portfolios,
+            app.state.market_data,
+            persistence.backups,
         )
         app.state.portfolios.ensure_defaults()
         logger.info(
@@ -90,6 +98,7 @@ def create_app(
     app.include_router(health.router, prefix=API_PREFIX)
     app.include_router(market_data.router, prefix=API_PREFIX)
     app.include_router(portfolios.router, prefix=API_PREFIX)
+    app.include_router(positions.router, prefix=API_PREFIX)
     return app
 
 

@@ -23,6 +23,7 @@ All persisted data lives under `DATA_DIR`. See the [README](../README.md#data-di
 | `current_prices` | `market_data/current/current.parquet` (plus archives) | 1 | `ticker, timestamp` | Current-price time series |
 | `price_history` | `market_data/history/history.parquet` | 1 | `ticker, trading_date` | Derived from `close_prices`. Rebuildable |
 | `portfolios` | `portfolios/portfolios.parquet` | 1 | `id` | Watchlists and positions portfolios |
+| `positions` | `positions/positions.parquet` | 1 | `id` | Open and closed positions |
 
 ### close_prices / price_history
 
@@ -92,4 +93,21 @@ A price is reported `stale` when its ticker's most recent refresh attempt failed
 | type | string | no | `watchlist` or `positions`. Never changes |
 | tickers | list&lt;string&gt; | no | Watchlists: tickers in the order they were added. Positions portfolios: always empty, because their tickers come from open positions |
 | favourites | list&lt;string&gt; | no | Always a subset of the portfolio's tickers |
+| created_at, updated_at | timestamp[us, UTC] | no | |
+
+### positions
+
+| Column | Type | Null | Description |
+|---|---|---|---|
+| id | string | no | UUID (hex) |
+| portfolio_id | string | no | A `positions` portfolio. Its positions are deleted along with it |
+| ticker | string | no | At most one `OPEN` row per (portfolio_id, ticker) |
+| currency | string | no | Quote currency when the position was created. Never converted |
+| quantity | decimal128(20,8) | no | Greater than 0 |
+| entry_price | decimal128(20,8) | no | Greater than 0, in the quote's units |
+| entry_date | date32 | yes | Informational. Not in the future |
+| status | string | no | `OPEN` or `CLOSED` |
+| exit_price | decimal128(20,8) | yes | Set when closed. Greater than 0 |
+| exit_date | date32 | yes | Set when closed. On or after `entry_date`, and not in the future |
+| notes | string | no | Up to 1000 characters |
 | created_at, updated_at | timestamp[us, UTC] | no | |

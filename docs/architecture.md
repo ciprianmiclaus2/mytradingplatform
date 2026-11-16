@@ -144,8 +144,26 @@ API (api/portfolios.py) ─► PortfolioService (portfolio/service.py) ─► Po
 
 - **Read-modify-write:** every change goes through `PortfolioRepository.modify()`, which holds the data lock. A rule violation raised inside the change aborts it and leaves the file untouched.
 - **Ticker checks happen before the lock.** Checking a new ticker may call the provider, so it runs before the lock is taken. The duplicate check is repeated under the lock.
-- **Hooks for positions (Phase 5):**
+- **Hooks for positions:** `PositionService` registers these when it is created.
   - `PortfolioService.position_tickers(portfolio_id)` supplies the tickers of open positions.
   - `on_deleted` hooks run under the lock when a portfolio is deleted, to remove its positions.
   - `prune_favourites()` drops favourites that are no longer tickers, e.g. after a position closes.
 - **Refresh support:** `all_tickers()` returns the unique tickers across all portfolios, for the market data refresh (Phase 10).
+
+## Positions
+
+```text
+API (api/positions.py) ─► PositionService (positions/service.py) ─► PositionRepository ─► ParquetStore
+                                  │            │
+                                  │            └─► calculations.py   valuation, P&L, per-currency totals (pure functions)
+                                  ├─► PortfolioService               portfolio type, ticker derivation, favourites
+                                  └─► MarketDataService              ensure_price() on create; latest prices for valuation
+```
+
+- **No ledger:** positions are edited in place.
+- **Storage:** quantities and prices are stored as `decimal128(20,8)`.
+- **Calculations:**
+  - Done with `Decimal`. Market prices (stored as float64) are converted using their shortest string form, so `0.1` becomes exactly `Decimal("0.1")`.
+  - Results are rounded to 8 decimal places and returned as JSON numbers.
+  - A price in a different currency from the position is never used.
+- **Multi-step changes hold the lock throughout:** closing or deleting a position, together with pruning favourites (and the backup before a delete), happens under one data lock hold.
