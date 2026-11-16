@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -24,6 +25,24 @@ logger = logging.getLogger(__name__)
 
 # Derivatives are out of scope for V1 (plan §1.1).
 EXCLUDED_INSTRUMENT_TYPES = frozenset({"FUTURE", "OPTION"})
+
+_CURL_PREFIX = re.compile(r"^(Failed to perform, )?curl: \(\d+\) ")
+_MAX_ERROR_LENGTH = 160
+
+
+def _brief(exc: BaseException) -> str:
+    """A short, user-facing description of a provider exception.
+
+    HTTP client errors can be long and technical (e.g. curl messages with
+    documentation links); the full text is logged at DEBUG level instead.
+    """
+    text = (str(exc).strip().splitlines() or [type(exc).__name__])[0]
+    text = _CURL_PREFIX.sub("", text)
+    text = text.split(" See https://", 1)[0].strip() or type(exc).__name__
+    if len(text) > _MAX_ERROR_LENGTH:
+        text = text[: _MAX_ERROR_LENGTH - 1].rstrip() + "…"
+    logger.debug("provider error detail", extra={"detail": str(exc)})
+    return text
 
 
 def _http_status(exc: BaseException) -> int | None:
@@ -65,7 +84,7 @@ class YFinanceProvider(BaseMarketDataProvider):
             )
             quotes = search.quotes or []
         except Exception as exc:
-            raise ProviderError(f"Ticker search failed: {exc}") from exc
+            raise ProviderError(f"Ticker search failed: {_brief(exc)}") from exc
         return [r for q in quotes if (r := self._search_result(q)) is not None]
 
     def _search_result(self, quote: dict[str, Any]) -> TickerSearchResult | None:
@@ -101,14 +120,14 @@ class YFinanceProvider(BaseMarketDataProvider):
             # Includes YFPricesMissingError / YFTzMissingError: Yahoo answered with no data.
             return HistoricalPrices(ticker=ticker, bars=[])
         except Exception as exc:
-            raise ProviderError(f"History request for {ticker} failed: {exc}", ticker) from exc
+            raise ProviderError(f"History request for {ticker} failed: {_brief(exc)}", ticker) from exc
 
         if frame is None or frame.empty:
             return HistoricalPrices(ticker=ticker, bars=[])
         try:
             currency = (t.get_history_metadata() or {}).get("currency")
         except Exception as exc:
-            raise ProviderError(f"History metadata for {ticker} failed: {exc}", ticker) from exc
+            raise ProviderError(f"History metadata for {ticker} failed: {_brief(exc)}", ticker) from exc
         if not currency:
             raise ProviderError(f"Provider returned no currency for {ticker}", ticker)
         return HistoricalPrices(ticker=ticker, bars=self._bars(ticker, frame, currency, start_date, end_date))
@@ -144,7 +163,7 @@ class YFinanceProvider(BaseMarketDataProvider):
         except Exception as exc:
             if _http_status(exc) == 404:
                 raise NoPriceDataError(f"No quote available for {ticker}", ticker) from exc
-            raise ProviderError(f"Quote request for {ticker} failed: {exc}", ticker) from exc
+            raise ProviderError(f"Quote request for {ticker} failed: {_brief(exc)}", ticker) from exc
         return self._quote(ticker, info)
 
     def _quote(self, ticker: str, info: dict[str, Any]) -> PriceQuote:
@@ -201,7 +220,7 @@ class YFinanceProvider(BaseMarketDataProvider):
                 elif isinstance(exc, ProviderError):
                     results[ticker] = exc
                 else:
-                    results[ticker] = ProviderError(f"Unexpected provider error: {exc}", ticker)
+                    results[ticker] = ProviderError(f"Unexpected provider error: {_brief(exc)}", ticker)
             return results
         finally:
             pool.shutdown(wait=False, cancel_futures=True)

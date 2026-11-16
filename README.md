@@ -2,7 +2,7 @@
 
 A locally hosted, single-user signal-generation dashboard. It monitors watchlists of ticker symbols, displays held positions with their P&L, and runs configurable strategies such as mean reversion. All data is stored in local Parquet files. It never places real trades and does no accounting.
 
-> **Status:** Phases 1–10 are complete: the backend, the Portfolio, Positions and Strategy panes, and the global Refresh. Phase 11 (integration and QA) remains. See
+> **Status:** Version 1 is complete (Phases 1–11). See
 > [docs/MyTradingPlatform_v1_ImplementationPlan.md](docs/MyTradingPlatform_v1_ImplementationPlan.md)
 > for the full V1 plan.
 
@@ -133,7 +133,7 @@ The backend reads its settings from environment variables, or from an optional `
 | `BACKUP_ON_STARTUP` | `true` | Back up application state on startup (skipped if nothing changed since the last backup) |
 | `PERSISTENCE_LOCK_TIMEOUT` | `10` | Seconds to wait for the data write lock |
 | `CORS_ORIGINS` | the Vite dev origins | JSON list of allowed browser origins |
-| `LOG_LEVEL` | `INFO` | Log level. Logs are written to stderr as JSON lines |
+| `LOG_LEVEL` | `INFO` | Log level. Logs are written to stderr as JSON lines. `DEBUG` adds every file write and full provider error text |
 
 ### Frontend
 
@@ -209,6 +209,21 @@ cd frontend && npm run lint
 
 Automated tests never call Yahoo Finance. The market data tests use a fake in-memory provider (`tests/fakes.py`) and stubbed yfinance objects.
 
+What the suites cover:
+
+- **Backend unit tests** (`backend/tests/unit`): persistence, caches, provider, services, calculations, strategies.
+- **Backend integration tests** (`backend/tests/integration`): every API endpoint, plus:
+  - `test_workflow.py`: the whole V1 workflow, a restart on the same data folder, a refresh with the provider down (prices kept and marked stale), and recovery from a damaged data file with `scripts/backup_data.py restore`.
+  - `test_invalid_input.py`: about 60 invalid requests across the API, each rejected with a 4xx error and leaving the data unchanged.
+- **Frontend tests** (`frontend/src/**/*.test.ts(x)`): dashboard, layout persistence, data grid, each pane, the generated strategy form, the global refresh, and API errors.
+
+**Manual acceptance check** (after changes that affect the UI). Run `./start.sh` with a scratch data folder (`DATA_DIR=/tmp/mtp-check ./start.sh`), then:
+
+1. Add tickers and mark favourites, and press **Refresh**.
+2. Add positions in two currencies, close one, and tick **Show closed**.
+3. Add a Strategy pane on the positions list, change the lookback, and press **Refresh**.
+4. Move and resize panes, stop `start.sh`, close the browser, start again, and reopen. Layout, settings and data should all be unchanged.
+
 ## Troubleshooting
 
 | Symptom | Fix |
@@ -221,4 +236,6 @@ Automated tests never call Yahoo Finance. The market data tests use a fake in-me
 | Ticker search returns 502 | Yahoo Finance is unreachable or rate-limiting. Try again later |
 | Backend exits with "Cannot create data directory" | `DATA_DIR` isn't writable, or part of its path is a file |
 | Browser shows a CORS error when `VITE_API_BASE_URL` is an absolute URL | Add the frontend origin to `CORS_ORIGINS` |
+| `start.sh` says "Backend did not become healthy" but the backend log shows it started | Fixed in V1: the health check now ignores `http_proxy`/`https_proxy`. If you call the API with your own tools behind a proxy, add `127.0.0.1` to `no_proxy` |
+| Refresh shows "Refresh failed for all N tickers" | Yahoo Finance is unreachable (network, proxy, or rate limiting). Prices stay on screen marked ⚠; press Refresh again later. **details** shows the error per ticker |
 | `node: command not found` in a script or IDE terminal | Node was installed with nvm. Run `source ~/.nvm/nvm.sh` or open a login shell |

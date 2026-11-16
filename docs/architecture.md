@@ -241,6 +241,7 @@ frontend: notifyDataChanged() → every pane reloads; strategy panes re-run
 
 - `RefreshService` is the only code that combines portfolios and market data, so neither service depends on the other.
 - The request body is optional, and unknown fields are rejected (the old `{"tickers": [...]}` body now returns 422 rather than being ignored).
+- History downloads are serialised per ticker: when two requests need the same missing history (for example, two strategy panes running at once), the second waits and then reads it from the cache, so the provider is asked once.
 - Only one refresh runs at a time. A second request gets 409 `refresh_in_progress`; the frontend also disables the button while a refresh runs.
 - Partial success is normal. Failed tickers keep their last valid price and are reported as stale until a later refresh succeeds.
 - The frontend reloads all panes after any refresh result, including partial or failed ones, so stale markers appear. If the request itself fails, nothing reloads and the last data stays on screen.
@@ -287,6 +288,7 @@ The registry is the only place that knows the pane types. Adding a type means ad
 - Every pane body is wrapped in an error boundary, so a rendering failure in one pane does not affect the others.
 - All calculations stay in the backend. The frontend only formats numbers (percent values arrive in percent units) and colours gains green and losses red.
 - Sorting is client-side. Empty values sort last in both directions; text sorts case-insensitively.
+- Identical requests in flight are shared (`useApiData`): when every pane reloads after a refresh, the portfolio list is fetched once. The key passed to `useApiData` must therefore identify the request completely.
 
 ### Strategy settings forms
 

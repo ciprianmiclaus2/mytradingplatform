@@ -1,8 +1,8 @@
 # API
 
-_To be completed as the implementation progresses. See the README and the V1 implementation plan for the current state._
+Reference for the V1 API. Interactive OpenAPI docs are served at `/api/docs` while the backend runs.
 
-## Implemented endpoints
+## General
 
 All endpoints use the `/api` prefix. Interactive OpenAPI docs: `/api/docs`.
 
@@ -29,7 +29,7 @@ These endpoints never fabricate prices. A ticker with no cached price is listed 
 | `/api/market-data/search?q=&limit=` | GET | Ticker search, normalised. Futures and options are excluded. Returns 502 if the provider is unavailable |
 | `/api/market-data/prices?tickers=AAPL,MSFT` | GET | Latest cached prices. Never calls the provider |
 | `/api/market-data/history?ticker=&start=&end=` | GET | Completed daily closes. Missing ranges are fetched once and then served from cache |
-| `/api/market-data/refresh` | POST | Fetches the latest prices, once per unique ticker. Body: `{"tickers": [...]}` |
+| `/api/market-data/refresh` | POST | Global refresh: every portfolio's tickers (open positions for positions lists) plus `extra_tickers`, once per unique ticker. Body (optional): `{"extra_tickers": [...]}`, at most 200. Returns 409 `refresh_in_progress` if a refresh is already running |
 | `/api/market-data/status` | GET | Provider, last refresh result, last successful refresh time |
 
 ### Latest price
@@ -71,7 +71,7 @@ Each failed ticker is listed in `errors` with `code` set to `no_data`, `provider
  "errors": [{"ticker": "ZZZZ", "code": "no_data", "message": "No quote available for ZZZZ"}]}
 ```
 
-In Phase 10, refresh will also collect tickers from portfolios, positions and strategy panes. For now the caller lists the tickers.
+The dashboard sends the tickers of strategy panes that use a typed ticker list as `extra_tickers`, because those panes are stored in the browser. Unknown body fields are rejected with 422.
 
 ## Portfolios
 

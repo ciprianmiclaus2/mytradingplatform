@@ -16,8 +16,15 @@ export function RefreshControl({ running, lastResult, lastSuccessAt, error, onRe
     const close = (e: MouseEvent) => {
       if (!rootRef.current?.contains(e.target as Node)) setShowDetails(false)
     }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowDetails(false)
+    }
     document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', close)
+      document.removeEventListener('keydown', onKey)
+    }
   }, [showDetails])
 
   let summary: React.ReactNode = null

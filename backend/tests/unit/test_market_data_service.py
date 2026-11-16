@@ -273,3 +273,31 @@ def test_refresh_rotates_current_file(store: ParquetStore, provider: FakeProvide
         service.refresh(["AAPL"])
     assert list(store.resolve("market_data/current").glob("current.2*.parquet"))
     assert service.get_latest_prices(["AAPL"])["AAPL"].price == 103.0  # type: ignore[union-attr]
+
+
+def test_concurrent_history_requests_fetch_once(store: ParquetStore, provider: FakeProvider) -> None:
+    """Regression (Phase 11 log review): two overlapping strategy runs both downloaded the same history."""
+    import threading
+    import time
+
+    provider.set_closes("AAPL", weekdays(date(2026, 10, 1), date(2026, 11, 13)))
+    service, _ = make_service(store, provider)
+    original = provider.get_historical_prices
+
+    def slow(*args, **kwargs):  # type: ignore[no-untyped-def]
+        time.sleep(0.2)  # keep the first download in flight while the second request arrives
+        return original(*args, **kwargs)
+
+    provider.get_historical_prices = slow  # type: ignore[method-assign]
+    results: list[int] = []
+    threads = [
+        threading.Thread(target=lambda: results.append(len(service.get_history(["AAPL"], date(2026, 10, 1), date(2026, 11, 13))["AAPL"].bars)))
+        for _ in range(3)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert len(provider.history_calls) == 1
+    assert len(set(results)) == 1 and results[0] > 0

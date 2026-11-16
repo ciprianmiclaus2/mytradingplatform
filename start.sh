@@ -48,10 +48,10 @@ log "Starting backend on http://$BACKEND_HOST:$BACKEND_PORT ..."
 
 # Wait for the backend to answer before starting the frontend.
 for _ in $(seq 1 30); do
-  if curl -sf "http://$BACKEND_HOST:$BACKEND_PORT/api/health" >/dev/null 2>&1; then break; fi
+  if curl -sf --noproxy "*" "http://$BACKEND_HOST:$BACKEND_PORT/api/health" >/dev/null 2>&1; then break; fi
   sleep 0.5
 done
-curl -sf "http://$BACKEND_HOST:$BACKEND_PORT/api/health" >/dev/null 2>&1 \
+curl -sf --noproxy "*" "http://$BACKEND_HOST:$BACKEND_PORT/api/health" >/dev/null 2>&1 \
   || die "Backend did not become healthy. See the [backend] output above."
 
 export VITE_BACKEND_URL="${VITE_BACKEND_URL:-http://$BACKEND_HOST:$BACKEND_PORT}"

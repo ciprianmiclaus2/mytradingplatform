@@ -52,9 +52,15 @@ def open_persistence(
     store.remove_stale_temp_files()
     checked = store.validate_registered(registered_datasets())
     logger.info("data files validated", extra={"files": checked})
+    missing = set(derived.missing(store))
     rebuilt = derived.rebuild_stale(store)
-    if rebuilt:
-        logger.warning("stale derived datasets rebuilt", extra={"datasets": rebuilt})
+    created = [name for name in rebuilt if name in missing]
+    stale = [name for name in rebuilt if name not in missing]
+    if created:
+        logger.info("derived datasets created", extra={"datasets": created})
+    if stale:
+        # Sources changed outside the application (or a write was interrupted).
+        logger.warning("stale derived datasets rebuilt", extra={"datasets": stale})
     if backup_on_startup:
         backups.create_backup("startup", skip_if_unchanged=True)
 

@@ -109,6 +109,10 @@ class DerivedRegistry:
         fingerprint = source_fingerprint(store, derived.sources)
         store.write(derived.output, table, extra_metadata={FINGERPRINT_KEY: fingerprint})
 
+    def missing(self, store: ParquetStore) -> list[str]:
+        """Derived datasets whose output file does not exist yet (e.g. a new data directory)."""
+        return [name for name in self._items if store.read_metadata(self.get(name).output) is None]
+
     def rebuild_stale(self, store: ParquetStore) -> list[str]:
         rebuilt = []
         for name in self._items:

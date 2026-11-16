@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import math
+import threading
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 
@@ -77,6 +78,9 @@ class MarketDataService:
         self.history_cache = HistoricalCache(store)
         self.current_cache = CurrentPriceCache(store, archive_threshold)
         self.refresh_status = RefreshStatusStore(store)
+        # One history download per ticker at a time; concurrent callers wait and reuse it.
+        self._history_locks: dict[str, threading.Lock] = {}
+        self._history_locks_guard = threading.Lock()
 
     # -- search ----------------------------------------------------------------
 
@@ -146,7 +150,17 @@ class MarketDataService:
             t: r.model_copy(update={"bars": r.bars[-sessions:]}) if r.bars else r for t, r in results.items()
         }
 
+    def _history_lock(self, ticker: str) -> threading.Lock:
+        with self._history_locks_guard:
+            return self._history_locks.setdefault(ticker, threading.Lock())
+
     def _fill_history(self, ticker: str, start: date, end: date) -> bool:
+        # Checked under the per-ticker lock, so a concurrent request that just
+        # fetched this range is seen as a cache hit rather than fetched again.
+        with self._history_lock(ticker):
+            return self._fill_history_locked(ticker, start, end)
+
+    def _fill_history_locked(self, ticker: str, start: date, end: date) -> bool:
         gaps = self.history_cache.missing_ranges(ticker, self.provider.name, start, end)
         if not gaps:
             logger.debug("history cache hit", extra={"ticker": ticker})

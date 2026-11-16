@@ -261,3 +261,19 @@ def test_current_prices_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     results = provider.get_current_prices(["SLOW"])
     assert time.monotonic() - start < 0.9
     assert isinstance(results["SLOW"], ProviderError) and "timed out" in str(results["SLOW"])
+
+
+def test_provider_error_messages_are_brief() -> None:
+    from app.market_data.providers.yfinance_provider import _brief
+
+    curl = RuntimeError(
+        "Failed to perform, curl: (7) Failed to connect to query2.finance.yahoo.com:443 over proxy 127.0.0.1 "
+        "after 0 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details."
+    )
+    assert _brief(curl) == (
+        "Failed to connect to query2.finance.yahoo.com:443 over proxy 127.0.0.1 after 0 ms: Could not connect to server."
+    )
+    assert _brief(ValueError("line one\nline two")) == "line one"
+    assert _brief(ValueError("")) == "ValueError"
+    long = _brief(ValueError("x" * 500))
+    assert len(long) == 160 and long.endswith("…")

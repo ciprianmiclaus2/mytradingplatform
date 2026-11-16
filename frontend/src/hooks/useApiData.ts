@@ -17,6 +17,24 @@ interface Loaded<T> {
   error: string | null
 }
 
+/**
+ * Requests in flight, by token. Panes asking for the same data at the same
+ * time (e.g. every pane reloading the portfolio list after a refresh) share
+ * one request. Entries are removed as soon as the request settles.
+ */
+const inflight = new Map<string, Promise<unknown>>()
+
+function shared<T>(token: string, load: () => Promise<T>): Promise<T> {
+  let promise = inflight.get(token) as Promise<T> | undefined
+  if (!promise) {
+    promise = load()
+    inflight.set(token, promise)
+    const forget = () => inflight.delete(token)
+    promise.then(forget, forget)
+  }
+  return promise
+}
+
 export function errorMessage(error: unknown): string {
   if (error instanceof ApiError) return error.message
   if (error instanceof Error) return error.message
@@ -28,6 +46,8 @@ export function errorMessage(error: unknown): string {
  * load); the loader re-runs when the key changes, on `reload()`, and when
  * backend data changes (see dataVersion). Data from the previous load of the
  * same key stays visible while reloading and after a failed reload.
+ *
+ * The key must identify the request completely: identical keys share a request.
  */
 export function useApiData<T>(key: string | null, load: (signal: AbortSignal) => Promise<T>): ApiData<T> {
   const version = useDataVersion()
@@ -42,8 +62,10 @@ export function useApiData<T>(key: string | null, load: (signal: AbortSignal) =>
 
   useEffect(() => {
     if (key === null) return
+    // Each consumer can stop listening; the shared request itself is not aborted.
     const controller = new AbortController()
-    loadRef.current(controller.signal).then(
+    const load = loadRef.current
+    shared(token, () => load(new AbortController().signal)).then(
       (data) => {
         if (!controller.signal.aborted) setLoaded({ key, token, data, error: null })
       },

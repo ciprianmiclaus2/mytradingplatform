@@ -209,7 +209,7 @@ class ParquetStore:
                 extra={"file": display, "dataset": dataset.name, "error": str(exc)},
             )
             raise PersistenceError(f"Failed to write {display}: {exc}") from exc
-        logger.info(
+        logger.debug(
             "parquet written",
             extra={"file": display, "dataset": dataset.name, "rows": table.num_rows},
         )
