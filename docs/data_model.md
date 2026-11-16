@@ -24,6 +24,7 @@ All persisted data lives under `DATA_DIR`. See the [README](../README.md#data-di
 | `price_history` | `market_data/history/history.parquet` | 1 | `ticker, trading_date` | Derived from `close_prices`. Rebuildable |
 | `portfolios` | `portfolios/portfolios.parquet` | 1 | `id` | Watchlists and positions portfolios |
 | `positions` | `positions/positions.parquet` | 1 | `id` | Open and closed positions |
+| `signals` | `strategies/signals.parquet` | 1 | `id` | Signal transitions per strategy instance and ticker |
 
 ### close_prices / price_history
 
@@ -111,3 +112,20 @@ A price is reported `stale` when its ticker's most recent refresh attempt failed
 | exit_date | date32 | yes | Set when closed. On or after `entry_date`, and not in the future |
 | notes | string | no | Up to 1000 characters |
 | created_at, updated_at | timestamp[us, UTC] | no | |
+
+### signals
+
+Only **changes** of signal state are recorded. The current state of a (instance_id, ticker) series is the `new_signal` of its latest event. A series with no events is in the "no signal" state.
+
+| Column | Type | Null | Description |
+|---|---|---|---|
+| id | string | no | UUID (hex) |
+| instance_id | string | no | Strategy instance, e.g. the dashboard pane id |
+| strategy | string | no | Strategy name |
+| ticker | string | no | |
+| previous_signal | string | yes | `BUY`, `SELL`, or null for no signal |
+| new_signal | string | yes | `BUY`, `SELL`, or null for no signal |
+| metric_name | string | yes | The strategy's main metric, e.g. `z_score` |
+| metric_value | float64 | yes | That metric's value at the transition |
+| current_price | float64 | yes | Price at the transition |
+| timestamp | timestamp[us, UTC] | no | When the run that produced the transition started |

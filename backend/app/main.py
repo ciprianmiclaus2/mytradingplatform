@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
-from app.api import health, market_data, portfolios, positions
+from app.api import health, market_data, portfolios, positions, strategies
 from app.config import Settings, get_settings
 from app.datasets import load_dataset_modules
 from app.market_data.base import BaseMarketDataProvider
@@ -22,6 +22,9 @@ from app.portfolio.repository import PortfolioRepository
 from app.portfolio.service import PortfolioService
 from app.positions.repository import PositionRepository
 from app.positions.service import PositionService
+from app.strategies.engine import StrategyEngine
+from app.strategies.registry import StrategyRegistry, discover_strategies, strategy_registry
+from app.strategies.signals import SignalStore
 from app.schemas.errors import register_error_handlers
 
 logger = logging.getLogger(__name__)
@@ -33,8 +36,9 @@ def create_app(
     settings: Settings | None = None,
     *,
     provider: BaseMarketDataProvider | None = None,
+    registry: StrategyRegistry | None = None,
 ) -> FastAPI:
-    """Build the app. ``provider`` overrides the configured provider (tests)."""
+    """Build the app. ``provider`` and ``registry`` (strategies) override the defaults (tests)."""
     settings = settings or get_settings()
 
     @asynccontextmanager
@@ -64,6 +68,11 @@ def create_app(
             persistence.backups,
         )
         app.state.portfolios.ensure_defaults()
+        if registry is None:
+            discover_strategies()
+        app.state.strategies = StrategyEngine(
+            registry or strategy_registry, app.state.market_data, SignalStore(persistence.store)
+        )
         logger.info(
             "application startup",
             extra={
@@ -99,6 +108,7 @@ def create_app(
     app.include_router(market_data.router, prefix=API_PREFIX)
     app.include_router(portfolios.router, prefix=API_PREFIX)
     app.include_router(positions.router, prefix=API_PREFIX)
+    app.include_router(strategies.router, prefix=API_PREFIX)
     return app
 
 

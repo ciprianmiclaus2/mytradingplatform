@@ -192,3 +192,86 @@ All values are calculated in the backend.
 ```
 
 `incomplete` is `true` when some open positions have no current price or previous close. In that case the market totals cover only the positions that have prices, while `cost_basis` always covers all open positions.
+
+## Strategies
+
+Strategies are generic: adding one needs no new endpoint.
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/strategies` | GET | Available strategies with their schemas |
+| `/api/strategies/{name}/schema` | GET | Configuration schema and output columns |
+| `/api/strategies/{name}/run` | POST | Run a strategy on a list of tickers |
+| `/api/strategies/signals?instance_id=&strategy=&ticker=&limit=50&offset=0` | GET | Recorded signal transitions, newest first. `limit` is 1–500 |
+
+### Schema
+
+```json
+{"name": "mean_reversion", "title": "...", "description": "...",
+ "parameters": [{"name": "lookback_days", "type": "integer", "title": "Lookback (days)", "description": "...",
+                 "default": 20, "minimum": 2, "maximum": null, "choices": null}],
+ "outputs": [{"name": "z_score", "title": "Z-Score", "format": "number", "description": ""}]}
+```
+
+- **Parameter `type`:** `integer`, `number`, `string` or `boolean`.
+- **Output `format`:** `price`, `number`, `percent` or `text`.
+- The frontend builds the configuration form from `parameters`, and the result columns from `outputs`.
+
+### Run
+
+Request body:
+
+```json
+{"tickers": ["AAPL", "MSFT"], "config": {"lookback_days": 20}, "instance_id": "pane-123"}
+```
+
+- **`config`:** missing parameters take their defaults. Unknown parameters, wrong types, values out of range, and cross-parameter rule violations return `422 invalid_strategy_config`, with `details` mapping each parameter to its message.
+- **`instance_id`** is optional: 1–64 characters, using letters, digits, `_` or `-`. It is typically the dashboard pane id. When it's given, signal transitions are recorded and the result rows carry signal-history fields.
+- **Data used:** the run uses the cached current prices; refresh first to update them. History is the completed sessions **before the session of the current quote**, so the current session is never included. Missing history is downloaded once and cached.
+- **Errors:** an unknown strategy returns `404`. A strategy that crashes returns `500 strategy_failed`, with no stack trace.
+
+Response:
+
+```json
+{"strategy": "mean_reversion", "instance_id": "pane-123", "config": {"lookback_days": 20, "...": "..."},
+ "calculated_at": "...",
+ "results": [{"ticker": "AAPL", "status": "OK", "signal": "BUY", "message": null,
+              "current_price": 215.42, "currency": "USD", "daily_change": -2.68, "daily_change_pct": -1.23,
+              "price_timestamp": "...", "stale": false,
+              "metrics": {"mean": 220.1, "standard_deviation": 2.5, "z_score": -1.87},
+              "previous_signal": null, "signal_changed_at": "...", "is_new_signal": true}]}
+```
+
+Results come back in request order, with duplicate tickers removed.
+
+### `status` values
+
+| Status | Meaning |
+|---|---|
+| `OK` | The calculation succeeded |
+| `NO_PRICE` | No cached current price for the ticker |
+| `INSUFFICIENT_DATA` | Not enough history |
+| `INVALID_CALCULATION` | The calculation can't produce a meaningful value (e.g. zero standard deviation) |
+| `DATA_ERROR` | History couldn't be retrieved |
+
+`signal` is `BUY`, `SELL` or `null` (no signal). It is a current condition, not an instruction to trade, and it is always `null` unless `status` is `OK`.
+
+### Signal history fields
+
+These are filled only for `OK` rows of runs that had an `instance_id`:
+
+| Field | Meaning |
+|---|---|
+| `is_new_signal` | The signal state changed in this run |
+| `signal_changed_at` | When the current state began |
+| `previous_signal` | The state before the current one |
+
+### Signal event
+
+```json
+{"id": "...", "instance_id": "pane-123", "strategy": "mean_reversion", "ticker": "AAPL",
+ "previous_signal": null, "new_signal": "BUY", "metric_name": "z_score", "metric_value": -2.1,
+ "current_price": 210.0, "timestamp": "..."}
+```
+
+The response is paginated: `{"items": [...], "total": 12, "limit": 50, "offset": 0}`.

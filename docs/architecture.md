@@ -167,3 +167,51 @@ API (api/positions.py) ─► PositionService (positions/service.py) ─► Posi
   - Results are rounded to 8 decimal places and returned as JSON numbers.
   - A price in a different currency from the position is never used.
 - **Multi-step changes hold the lock throughout:** closing or deleting a position, together with pruning favourites (and the backup before a delete), happens under one data lock hold.
+
+## Strategy engine
+
+```text
+API (api/strategies.py) ─► StrategyEngine (strategies/engine.py)
+                              ├─► StrategyRegistry (strategies/registry.py)   discovery + lookup
+                              ├─► MarketDataService                           cached quotes + history before the quote's session
+                              ├─► BaseStrategy.calculate()                    pure: normalised data in, StrategyOutput out
+                              └─► SignalStore (strategies/signals.py)         transitions → strategies/signals.parquet
+```
+
+Running a strategy takes these steps:
+
+1. Resolve the strategy.
+2. Validate the configuration against the schema, then apply the strategy's own cross-parameter rules.
+3. Remove duplicate tickers.
+4. Fetch the cached latest quotes and `required_sessions(config)` completed closes strictly before each quote's trading date. Tickers with no quote get no history fetch.
+5. Run `calculate`.
+6. Normalise the results:
+   - one row per requested ticker, in request order;
+   - a missing row becomes `DATA_ERROR`;
+   - a signal is only kept when the status is `OK`;
+   - price fields come from the quote.
+7. If there's an `instance_id`, record the signal transitions under the data lock.
+
+Signal state rules:
+
+- Only `OK` results change state.
+- The first `OK` calculation records an existing BUY or SELL straight away.
+- Repeated identical states are never recorded.
+
+**Boundaries.** A test checks these by parsing imports:
+
+- Strategy implementations (`strategies/base.py`, `models.py`, `<name>/*.py`) never import portfolios, positions, the API, FastAPI, yfinance, pyarrow, DuckDB or the persistence layer.
+- The engine never imports portfolios or positions. It only receives ticker symbols, and the caller decides where they come from.
+
+### Adding a strategy
+
+1. Create the package `app/strategies/<name>/`, containing `__init__.py` and `strategy.py`.
+2. In `strategy.py`, subclass `BaseStrategy` and decorate it with `@register_strategy`. Define:
+   - `name`, `title` and `description`;
+   - `parameters` (`StrategyParameter`s: type, default, min/max, choices, description);
+   - `outputs` (`OutputColumn`s for the result grid);
+   - optionally `primary_metric` (recorded with signal transitions);
+   - `required_sessions(config)`;
+   - `calculate(tickers, market_data, config)`, returning one `StrategyOutput` per ticker. Report problems through `status` rather than raising.
+   - Optionally override `check_config(config)` for cross-parameter rules.
+3. That's all. `discover_strategies()` imports `app.strategies.<pkg>.strategy` at startup. Only sub-packages of this trusted application package are imported. No new API route or frontend form is needed.
