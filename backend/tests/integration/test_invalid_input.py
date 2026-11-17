@@ -92,3 +92,16 @@ def test_invalid_input_changes_nothing(client: TestClient, ids: dict[str, str]) 
             client.request(method, path.format(**ids), json=body)
     after = (client.get("/api/portfolios").json(), client.get("/api/brokers/snaptrade/settings").json())
     assert after == before
+
+
+def test_index_ticker_round_trip_and_readable_validation_message(client: TestClient, fake_provider: FakeProvider) -> None:
+    fake_provider.set_quote("^FTSE", 8200.0, previous_close=8150.0)
+    [main] = client.get("/api/portfolios").json()
+    added = client.post(f"/api/portfolios/{main['id']}/tickers", json={"ticker": "^ftse"})
+    assert added.status_code == 201 and "^FTSE" in added.json()["tickers"]
+    assert [r["ticker"] for r in client.get(f"/api/portfolios/{main['id']}/quotes").json()["rows"]] == ["^FTSE"]
+    assert client.delete(f"/api/portfolios/{main['id']}/tickers/%5EFTSE").status_code == 200
+
+    bad = client.post(f"/api/portfolios/{main['id']}/tickers", json={"ticker": "bad ticker!"}).json()["error"]
+    assert bad["code"] == "validation_error"
+    assert bad["message"] == "Request validation failed: Invalid ticker symbol 'bad ticker!'"

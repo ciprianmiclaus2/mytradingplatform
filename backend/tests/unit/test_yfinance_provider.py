@@ -103,11 +103,12 @@ def test_registry_creates_yfinance_and_rejects_unknown() -> None:
 # -- search --------------------------------------------------------------------------------
 
 
-def test_search_normalises_and_filters_derivatives(provider: YFinanceProvider) -> None:
+def test_search_normalises_and_filters_options(provider: YFinanceProvider) -> None:
     StubSearch.quotes = [
         {"symbol": "AAPL", "shortname": "Apple", "longname": "Apple Inc.", "exchange": "NMS",
          "exchDisp": "NASDAQ", "quoteType": "EQUITY"},
         {"symbol": "SAAPL=F", "shortname": "Apple futures", "exchange": "CME", "quoteType": "FUTURE"},
+        {"symbol": "AAPL261218C00240000", "shortname": "AAPL Dec 2026 240 call", "exchange": "OPR", "quoteType": "OPTION"},
         {"symbol": "spy", "shortname": "SPDR S&P 500", "exchange": "PCX", "quoteType": "etf"},
         {"shortname": "no symbol", "quoteType": "EQUITY"},
     ]
@@ -115,6 +116,8 @@ def test_search_normalises_and_filters_derivatives(provider: YFinanceProvider) -
     assert [r.model_dump() for r in results] == [
         {"ticker": "AAPL", "name": "Apple Inc.", "exchange": "NASDAQ", "currency": None,
          "instrument_type": "EQUITY", "provider": "yfinance"},
+        {"ticker": "SAAPL=F", "name": "Apple futures", "exchange": "CME", "currency": None,
+         "instrument_type": "FUTURE", "provider": "yfinance"},
         {"ticker": "SPY", "name": "SPDR S&P 500", "exchange": "PCX", "currency": None,
          "instrument_type": "ETF", "provider": "yfinance"},
     ]
@@ -182,6 +185,13 @@ def test_history_without_currency_is_provider_error(provider: YFinanceProvider) 
     StubTicker.metadata = {}
     with pytest.raises(ProviderError, match="no currency"):
         provider.get_historical_prices("AAPL", date(2026, 11, 12), date(2026, 11, 12))
+
+
+def test_fx_history_without_currency_uses_the_symbol(provider: YFinanceProvider) -> None:
+    StubTicker.frame = history_frame({"2026-11-12": (6.41, 6.41)})
+    StubTicker.metadata = {"currency": ""}
+    [bar] = provider.get_historical_prices("GBPRON=X", date(2026, 11, 12), date(2026, 11, 12)).bars
+    assert bar.currency == "RON"
 
 
 # -- current prices ------------------------------------------------------------------------------
@@ -254,6 +264,14 @@ def test_quote_without_currency_is_provider_error(provider: YFinanceProvider) ->
     StubTicker.infos = {"AAPL": {**AAPL_INFO, "currency": None}}
     with pytest.raises(ProviderError, match="no currency"):
         provider.get_current_price("AAPL")
+
+
+@pytest.mark.parametrize(("ticker", "currency"), [("GBPRON=X", "RON"), ("RON=X", "RON")])
+def test_fx_quote_without_currency_uses_the_symbol(provider: YFinanceProvider, ticker: str, currency: str) -> None:
+    # Yahoo reports currency "" for some pairs, e.g. GBPRON=X.
+    StubTicker.infos = {ticker: {**AAPL_INFO, "currency": "", "longName": "GBP/RON", "regularMarketPrice": 6.4192}}
+    quote = provider.get_current_price(ticker)
+    assert (quote.price, quote.currency) == (6.4192, currency)
 
 
 def test_current_prices_partial_success(provider: YFinanceProvider) -> None:

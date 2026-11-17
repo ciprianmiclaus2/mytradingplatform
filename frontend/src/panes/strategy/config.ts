@@ -16,7 +16,7 @@ export interface StrategyPaneConfig {
 }
 
 /** Same rule as the backend (app/market_data/models.py). */
-const TICKER_RE = /^[A-Z0-9][A-Z0-9.\-=^&]{0,19}$/
+const TICKER_RE = /^\^?[A-Z0-9][A-Z0-9.\-=^&]{0,19}$/
 
 /** Split typed text into normalised, de-duplicated tickers, plus any invalid entries. */
 export function parseTickerList(text: string): { tickers: string[]; invalid: string[] } {

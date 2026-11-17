@@ -91,6 +91,9 @@ export function TickerSearch({ onSelect, placeholder = 'Add ticker…', disabled
               >
                 <span className="font-medium">{r.ticker}</span>
                 <span className="min-w-0 flex-1 truncate text-slate-600">{r.name}</span>
+                {r.instrument_type === 'FUTURE' && (
+                  <span className="rounded bg-amber-100 px-1 text-xs text-amber-800">Future</span>
+                )}
                 <span className="text-xs text-slate-400">{r.exchange ?? ''}</span>
               </button>
             </li>

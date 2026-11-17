@@ -15,7 +15,7 @@ All endpoints use the `/api` prefix. Interactive OpenAPI docs: `/api/docs`.
 Every error response has this shape:
 
 ```json
-{"error": {"code": "validation_error", "message": "Request validation failed", "details": [...]}}
+{"error": {"code": "validation_error", "message": "Request validation failed: Invalid ticker symbol 'NOT A TICKER'", "details": [...]}}
 ```
 
 Unexpected errors return `500` with `code: "internal_error"`. Stack traces are logged on the backend only.
@@ -26,7 +26,7 @@ These endpoints never fabricate prices. A ticker with no cached price is listed 
 
 | Endpoint | Method | Purpose |
 |---|---|---|
-| `/api/market-data/search?q=&limit=` | GET | Ticker search, normalised. Futures and options are excluded. Returns 502 if the provider is unavailable |
+| `/api/market-data/search?q=&limit=` | GET | Ticker search, normalised. Options are excluded; futures (e.g. `GC=F`) are included. Returns 502 if the provider is unavailable |
 | `/api/market-data/prices?tickers=AAPL,MSFT` | GET | Latest cached prices. Never calls the provider |
 | `/api/market-data/history?ticker=&start=&end=` | GET | Completed daily closes. Missing ranges are fetched once and then served from cache |
 | `/api/market-data/refresh` | POST | Global refresh: every portfolio's tickers, the tickers held in broker accounts (as of their last SnapTrade refresh) plus `extra_tickers`, once per unique ticker. Does not call SnapTrade. Body (optional): `{"extra_tickers": [...]}`, at most 200. Returns 409 `refresh_in_progress` if a refresh is already running |

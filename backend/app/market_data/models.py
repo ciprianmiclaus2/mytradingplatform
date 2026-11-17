@@ -12,7 +12,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
-_TICKER_RE = re.compile(r"^[A-Z0-9][A-Z0-9.\-=^&]{0,19}$")
+_TICKER_RE = re.compile(r"^\^?[A-Z0-9][A-Z0-9.\-=^&]{0,19}$")
 
 
 def normalise_ticker(raw: str) -> str:

@@ -60,6 +60,12 @@ def _error(status: int, code: str, message: str, details: Any | None = None) -> 
     return JSONResponse(status_code=status, content=body.model_dump(mode="json"))
 
 
+def _validation_message(details: list[dict[str, object]]) -> str:
+    """A readable summary: the reason a value was rejected, when the model gave one."""
+    reasons = [str(d["msg"]).removeprefix("Value error, ") for d in details if d.get("type") == "value_error"]
+    return f"Request validation failed: {'; '.join(reasons)}" if reasons else "Request validation failed"
+
+
 _HTTP_CODES = {404: "not_found", 405: "method_not_allowed", 409: "conflict"}
 
 
@@ -74,7 +80,7 @@ def register_error_handlers(app: FastAPI) -> None:
             {"loc": list(e.get("loc", ())), "msg": e.get("msg"), "type": e.get("type")}
             for e in exc.errors()
         ]
-        return _error(422, "validation_error", "Request validation failed", details)
+        return _error(422, "validation_error", _validation_message(details), details)
 
     @app.exception_handler(StarletteHTTPException)
     async def _http_error(_: Request, exc: StarletteHTTPException) -> JSONResponse:

@@ -179,8 +179,17 @@ def test_same_ticker_in_multiple_portfolios(service: PortfolioService) -> None:
 
 def test_ticker_symbols_are_normalised() -> None:
     assert TickerRequest(ticker=" aapl ").ticker == "AAPL"
-    with pytest.raises(ValidationError):
-        TickerRequest(ticker="not a ticker")
+    assert TickerRequest(ticker="^ftse").ticker == "^FTSE"  # Yahoo index symbols start with ^
+    for bad in ("not a ticker", "^", "^^FTSE", "FT$E"):
+        with pytest.raises(ValidationError):
+            TickerRequest(ticker=bad)
+
+
+def test_index_ticker_can_be_added_and_removed(service: PortfolioService, provider: FakeProvider) -> None:
+    provider.set_quote("^FTSE", 8200.0, previous_close=8150.0)
+    pid = watchlist(service)
+    assert service.add_ticker(pid, "^FTSE").tickers == ["^FTSE"]
+    assert service.remove_ticker(pid, "^FTSE").tickers == []
 
 
 def test_remove_ticker_also_removes_favourite(service: PortfolioService) -> None:

@@ -8,6 +8,7 @@ describe('strategy pane config', () => {
   it('parses manual ticker lists', () => {
     expect(parseTickerList('aapl, msft;vod.l  AAPL\nbrk-b')).toEqual({ tickers: ['AAPL', 'MSFT', 'VOD.L', 'BRK-B'], invalid: [] })
     expect(parseTickerList('ok, bad$, .x').invalid).toEqual(['bad$', '.x'])
+    expect(parseTickerList('^ftse, ^GSPC, ^^x, ^').tickers).toEqual(['^FTSE', '^GSPC'])
   })
 
   it('reads saved configurations defensively', () => {

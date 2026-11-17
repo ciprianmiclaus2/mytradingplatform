@@ -84,6 +84,24 @@ describe('PortfolioPane', () => {
     expect(await screen.findByText('Unknown ticker ZZZZ')).toBeInTheDocument()
   })
 
+  it('labels futures in the search results and adds the chosen one', async () => {
+    const api = setup({
+      'GET /market-data/search': [
+        { ticker: 'GC=F', name: 'Gold Dec 26', exchange: 'COMEX', currency: 'USD', instrument_type: 'FUTURE', provider: 'yfinance' },
+        { ticker: 'GLD', name: 'SPDR Gold Shares', exchange: 'NYSEArca', currency: 'USD', instrument_type: 'ETF', provider: 'yfinance' },
+      ],
+      'POST /portfolios/pf-main/tickers': watchlist,
+    })
+    renderPane(PortfolioPane)
+    await screen.findByText('190.50')
+    await userEvent.type(screen.getByRole('combobox', { name: /Add ticker/ }), 'gold')
+    const [gold, gld] = within(await screen.findByRole('listbox')).getAllByRole('option')
+    expect(within(gold).getByText('Future')).toBeInTheDocument()
+    expect(within(gld).queryByText('Future')).not.toBeInTheDocument()
+    await userEvent.click(within(gold).getByRole('button'))
+    await waitFor(() => expect(api.find('POST', '/portfolios/pf-main/tickers')[0]?.body).toEqual({ ticker: 'GC=F' }))
+  })
+
   it('shows the company name when hovering a ticker', async () => {
     setup()
     renderPane(PortfolioPane)

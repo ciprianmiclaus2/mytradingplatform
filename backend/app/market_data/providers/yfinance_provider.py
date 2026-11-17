@@ -23,11 +23,25 @@ from app.market_data.models import DailyBar, HistoricalPrices, PriceQuote, Ticke
 
 logger = logging.getLogger(__name__)
 
-# Derivatives are out of scope for V1 (plan §1.1).
-EXCLUDED_INSTRUMENT_TYPES = frozenset({"FUTURE", "OPTION"})
+# Options are left out of search; futures (e.g. GC=F gold, CL=F crude oil) are included.
+EXCLUDED_INSTRUMENT_TYPES = frozenset({"OPTION"})
 
 _CURL_PREFIX = re.compile(r"^(Failed to perform, )?curl: \(\d+\) ")
 _MAX_ERROR_LENGTH = 160
+
+
+_FX_TICKER = re.compile(r"^(?:[A-Z]{3})?([A-Z]{3})=X$")
+
+
+def _currency(ticker: str, reported: Any) -> str | None:
+    """The quote currency, or for FX pairs the one in the symbol when Yahoo leaves it blank.
+
+    ``GBPRON=X`` is priced in RON; the short form ``RON=X`` is USD/RON, also priced in RON.
+    """
+    if isinstance(reported, str) and reported.strip():
+        return reported.strip()
+    match = _FX_TICKER.match(ticker)
+    return match.group(1) if match else None
 
 
 def _brief(exc: BaseException) -> str:
@@ -125,7 +139,7 @@ class YFinanceProvider(BaseMarketDataProvider):
         if frame is None or frame.empty:
             return HistoricalPrices(ticker=ticker, bars=[])
         try:
-            currency = (t.get_history_metadata() or {}).get("currency")
+            currency = _currency(ticker, (t.get_history_metadata() or {}).get("currency"))
         except Exception as exc:
             raise ProviderError(f"History metadata for {ticker} failed: {_brief(exc)}", ticker) from exc
         if not currency:
@@ -170,7 +184,7 @@ class YFinanceProvider(BaseMarketDataProvider):
         price = _finite(info.get("regularMarketPrice"))
         if price is None:
             raise NoPriceDataError(f"No quote available for {ticker}", ticker)
-        currency = info.get("currency")
+        currency = _currency(ticker, info.get("currency"))
         if not currency:
             raise ProviderError(f"Provider returned no currency for {ticker}", ticker)
 
