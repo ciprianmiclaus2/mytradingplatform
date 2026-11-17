@@ -51,7 +51,7 @@ def test_cannot_delete_last_portfolio(client: TestClient) -> None:
 
 
 def test_ticker_and_favourite_flow(client: TestClient, fake_provider: FakeProvider) -> None:
-    fake_provider.set_quote("AAPL", 215.0, previous_close=214.0)
+    fake_provider.set_quote("AAPL", 215.0, previous_close=214.0, name="Apple Inc.")
     fake_provider.set_quote("MSFT", 410.0, previous_close=412.0)
     pid = _main(client)["id"]
 
@@ -69,6 +69,7 @@ def test_ticker_and_favourite_flow(client: TestClient, fake_provider: FakeProvid
     assert quotes["portfolio_id"] == pid
     assert [(r["ticker"], r["price"], r["daily_change"], r["favourite"]) for r in quotes["rows"]] == [
         ("AAPL", 215.0, 1.0, False), ("MSFT", 410.0, -2.0, True)]
+    assert [r["name"] for r in quotes["rows"]] == ["Apple Inc.", None]
 
     removed = client.delete(f"/api/portfolios/{pid}/tickers/MSFT")
     assert removed.json()["tickers"] == ["AAPL"] and removed.json()["favourites"] == []

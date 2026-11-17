@@ -301,3 +301,26 @@ def test_concurrent_history_requests_fetch_once(store: ParquetStore, provider: F
 
     assert len(provider.history_calls) == 1
     assert len(set(results)) == 1 and results[0] > 0
+
+
+def test_names_are_cached_from_quotes_and_kept(store: ParquetStore, provider: FakeProvider) -> None:
+    from app.market_data.cache import TICKER_NAMES
+
+    service, _ = make_service(store, provider)
+    provider.set_quote("AAPL", 100.0, name="Apple Inc.")
+    provider.set_quote("ZZZ", 5.0)  # no name reported
+    service.refresh(["AAPL", "ZZZ"])
+    prices = service.get_latest_prices(["AAPL", "ZZZ"])
+    assert prices["AAPL"] is not None and prices["AAPL"].name == "Apple Inc."
+    assert prices["ZZZ"] is not None and prices["ZZZ"].name is None
+    # A later quote without a name keeps the known name; a new name replaces it.
+    provider.set_quote("AAPL", 101.0, timestamp=FIXED_NOW + timedelta(minutes=1))
+    service.refresh(["AAPL"])
+    assert service.get_latest_prices(["AAPL"])["AAPL"].name == "Apple Inc."  # type: ignore[union-attr]
+    provider.set_quote("AAPL", 102.0, timestamp=FIXED_NOW + timedelta(minutes=2), name="Apple  Inc. (new)")
+    service.refresh(["AAPL"])
+    assert service.get_latest_prices(["AAPL"])["AAPL"].name == "Apple Inc. (new)"  # type: ignore[union-attr]
+    assert store.read(TICKER_NAMES).num_rows == 1
+    # ensure_price (adding a ticker) also records the name.
+    provider.set_quote("MSFT", 400.0, name="Microsoft Corporation")
+    assert service.ensure_price("MSFT").name == "Microsoft Corporation"

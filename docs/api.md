@@ -118,10 +118,12 @@ Other errors:
 
 ### Quote row
 
+`name` is the company or fund name reported with the ticker's quotes (yfinance `longName`, else `shortName`), or `null` until a quote has reported one. Strategy results carry the same `name`.
+
 `null` values mean no price is cached yet. `stale` means the last refresh of that ticker failed.
 
 ```json
-{"ticker": "AAPL", "favourite": true, "price": 356.27, "currency": "USD", "previous_close": 354.88,
+{"ticker": "AAPL", "name": "Apple Inc.", "favourite": true, "price": 356.27, "currency": "USD", "previous_close": 354.88,
  "daily_change": 1.39, "daily_change_pct": 0.39, "timestamp": "2026-11-13T21:00:01Z",
  "delayed": true, "stale": false, "last_error": null}
 ```
@@ -233,7 +235,7 @@ Response:
 ```json
 {"strategy": "mean_reversion", "instance_id": "pane-123", "config": {"lookback_days": 20, "...": "..."},
  "calculated_at": "...",
- "results": [{"ticker": "AAPL", "status": "OK", "signal": "BUY", "message": null,
+ "results": [{"ticker": "AAPL", "name": "Apple Inc.", "status": "OK", "signal": "BUY", "message": null,
               "current_price": 215.42, "currency": "USD", "daily_change": -2.68, "daily_change_pct": -1.23,
               "price_timestamp": "...", "stale": false,
               "metrics": {"mean": 220.1, "standard_deviation": 2.5, "z_score": -1.87},

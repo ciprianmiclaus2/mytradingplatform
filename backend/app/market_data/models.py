@@ -77,6 +77,9 @@ class PriceQuote(_Model):
         description="True if the provider reports a delay; None if unknown. Never claims real-time."
     )
     fetched_at: datetime
+    name: str | None = Field(
+        default=None, description="Company or fund name, when the provider reports one (kept in its own cache)"
+    )
 
 
 class LatestPrice(PriceQuote):

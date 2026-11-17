@@ -21,7 +21,7 @@ function setup(overrides: Record<string, unknown> = {}) {
     'GET /portfolios/pf-main/quotes': {
       portfolio_id: 'pf-main',
       rows: [
-        quote('AAPL', { favourite: true, price: 190.5, daily_change: -2.25, daily_change_pct: -1.17 }),
+        quote('AAPL', { name: 'Apple Inc.', favourite: true, price: 190.5, daily_change: -2.25, daily_change_pct: -1.17 }),
         quote('VOD.L', { price: 0.7123, currency: 'GBP', daily_change: 0.01, daily_change_pct: 1.42, stale: true, last_error: 'timeout' }),
       ],
     },
@@ -82,6 +82,23 @@ describe('PortfolioPane', () => {
     await screen.findByText('190.50')
     await userEvent.type(screen.getByRole('combobox', { name: /Add ticker/ }), 'zzzz{Enter}')
     expect(await screen.findByText('Unknown ticker ZZZZ')).toBeInTheDocument()
+  })
+
+  it('shows the company name when hovering a ticker', async () => {
+    setup()
+    renderPane(PortfolioPane)
+    const table = await screen.findByRole('table')
+    expect(await within(table).findByText('AAPL')).toHaveAttribute('title', 'Apple Inc.')
+    expect(within(table).getByText('VOD.L')).not.toHaveAttribute('title') // name not known yet
+  })
+
+  it('links each ticker to its Yahoo Finance page in a new window', async () => {
+    setup()
+    renderPane(PortfolioPane)
+    const link = await screen.findByRole('link', { name: 'VOD.L' })
+    expect(link).toHaveAttribute('href', 'https://finance.yahoo.com/quote/VOD.L/')
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer')
   })
 
   it('saves the chosen portfolio in the pane configuration', async () => {

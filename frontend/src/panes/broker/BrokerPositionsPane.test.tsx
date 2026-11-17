@@ -58,7 +58,13 @@ describe('BrokerPositionsPane', () => {
     const table = await screen.findByRole('table', { name: 'Brokerage ****1234 positions' })
     expect(await within(table).findByText('1,100.00')).toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Account' })).toHaveValue('acc-1')
-    expect(within(table).getByText(/261218C00240000/)).toBeInTheDocument()
+    expect(within(table).getByRole('link', { name: 'AAPL' })).toHaveAttribute('href', 'https://finance.yahoo.com/quote/AAPL/')
+    // Options link to Yahoo's option page (OCC symbol without the padding spaces).
+    expect(within(table).getByRole('link', { name: /261218C00240000/ })).toHaveAttribute(
+      'href',
+      'https://finance.yahoo.com/quote/AAPL261218C00240000/',
+    )
+    expect(within(table).getByRole('link', { name: /261218C00240000/ })).toHaveAttribute('target', '_blank')
     expect(within(table).getAllByRole('img', { name: 'Broker price' })).toHaveLength(1) // only the option
     expect(within(table).getByText('(incomplete)')).toBeInTheDocument()
     expect(within(table).getByText('1,650.00')).toBeInTheDocument()

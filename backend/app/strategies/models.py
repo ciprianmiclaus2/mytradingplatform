@@ -98,6 +98,7 @@ class StrategyOutput(BaseModel):
 
 class TickerResult(BaseModel):
     ticker: str
+    name: str | None = Field(default=None, description="Company or fund name, when known")
     status: CalculationStatus
     signal: Signal | None = Field(description="Current condition, not a trade instruction. Null = no signal")
     message: str | None

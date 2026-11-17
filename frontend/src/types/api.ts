@@ -33,6 +33,8 @@ export interface Portfolio {
 
 export interface QuoteRow {
   ticker: string
+  /** Company or fund name, when known (shown on hover). */
+  name?: string | null
   favourite: boolean
   price: number | null
   currency: string | null
@@ -208,6 +210,8 @@ export type CalculationStatus = 'OK' | 'NO_PRICE' | 'INSUFFICIENT_DATA' | 'INVAL
 
 export interface TickerResult {
   ticker: string
+  /** Company or fund name, when known (shown on hover). */
+  name?: string | null
   status: CalculationStatus
   signal: Signal | null
   message: string | null

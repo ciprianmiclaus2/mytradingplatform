@@ -151,6 +151,7 @@ class StrategyEngine:
             results.append(
                 TickerResult(
                     ticker=ticker,
+                    name=quote.name if quote else None,
                     status=output.status,
                     signal=signal,
                     message=output.message,

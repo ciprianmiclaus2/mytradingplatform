@@ -115,7 +115,7 @@ Panes in hidden tabs keep working: a Refresh updates them and their strategies r
 - **Positions:** the positions of one broker account, pulled through SnapTrade: quantity, average cost, price, market value, daily P&L and unrealised P&L, with one totals row per currency. Choose the account at the top. **↻ Refresh** fetches that account's positions from SnapTrade (the account list is fetched first); the pane shows when it was last refreshed and how old SnapTrade's data from the broker is. Prices come from the dashboard's market data where a holding maps to a ticker (London holdings are converted from pence); otherwise, for example for options, the broker's price at the last refresh is used, marked ⓑ.
 - **Strategy:** choose a strategy (Bollinger Bands, MACD, Mean Reversion, Moving Average Crossover or RSI), its settings (the form is built from the strategy's own parameter list), and its tickers: a portfolio, a portfolio's favourites, a broker account's holdings, or a typed list. The pane shows the strategy's metrics and the BUY (green) or SELL (red) signal per ticker; **Settings** changes the configuration, **↻** recalculates, and **About** explains how the strategy works and how to read it (also available as "How this strategy works" while choosing). Tickers without enough history show a status rather than numbers.
 
-Click a column header to sort; click again to reverse. Each pane's settings (selected portfolio or account, strategy configuration) are saved with the layout.
+Hover a ticker to see the company or fund name; click it to open its Yahoo Finance page in a new window (options link to Yahoo's option page; cash and unmapped holdings have no link). Click a column header to sort; click again to reverse. Each pane's settings (selected portfolio or account, strategy configuration) are saved with the layout.
 
 ### Broker accounts (SnapTrade)
 
@@ -176,6 +176,7 @@ $DATA_DIR/
 ├── market_data/
 │   ├── close_prices/        one Parquet file per trading date (YYYYMMDD.parquet), all tickers
 │   ├── coverage.parquet     date ranges already fetched per ticker
+│   ├── names.parquet        company or fund name per ticker (from quotes)
 │   ├── current/             current-price time series; current.YYYYMMDDHHMMSS.parquet archives
 │   ├── history/             history.parquet: rebuildable consolidated view
 │   └── refresh_status.json  last refresh result and per-ticker refresh state

@@ -21,6 +21,7 @@ All persisted data lives under `DATA_DIR`. See the [README](../README.md#data-di
 | `close_prices` | `market_data/close_prices/YYYYMMDD.parquet` | 1 | `ticker` | Authoritative historical cache. One file per trading date |
 | `close_price_coverage` | `market_data/coverage.parquet` | 1 | `ticker, provider, start_date` | Date ranges already fetched |
 | `current_prices` | `market_data/current/current.parquet` (plus archives) | 1 | `ticker, timestamp` | Current-price time series |
+| `ticker_names` | `market_data/names.parquet` | 1 | `ticker` | Company or fund name per ticker (`ticker`, `name`, `updated_at`), from the latest quote that reported one. Shown when hovering a ticker. Rebuilt by refreshing; not backed up |
 | `price_history` | `market_data/history/history.parquet` | 1 | `ticker, trading_date` | Derived from `close_prices`. Rebuildable |
 | `portfolios` | `portfolios/portfolios.parquet` | 1 | `id` | Watchlists |
 | `broker_accounts` | `brokers/accounts.parquet` | 1 | `id` | Accounts as last listed by SnapTrade. A cache: rebuilt by refreshing, not backed up |

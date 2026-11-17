@@ -205,6 +205,17 @@ def test_quote_normalisation(provider: YFinanceProvider) -> None:
     assert q.trading_date == date(2026, 11, 13)
     assert q.delayed is True  # Yahoo reports a delay even when it says "Real Time"
     assert q.provider == "yfinance" and q.fetched_at.tzinfo is not None
+    assert q.name is None  # AAPL_INFO has no name fields
+
+
+@pytest.mark.parametrize(
+    ("fields", "name"),
+    [({"longName": "Apple Inc.", "shortName": "Apple"}, "Apple Inc."), ({"shortName": " Apple "}, "Apple"),
+     ({"longName": "  "}, None), ({"longName": 42}, None)],
+)
+def test_quote_name(provider: YFinanceProvider, fields: dict, name: str | None) -> None:
+    StubTicker.infos = {"AAPL": {**AAPL_INFO, **fields}}
+    assert provider.get_current_price("AAPL").name == name
 
 
 def test_quote_never_claims_real_time(provider: YFinanceProvider) -> None:

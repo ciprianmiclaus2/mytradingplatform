@@ -77,6 +77,7 @@ class QuoteRow(BaseModel):
     """One row of the Portfolio pane. All values are computed by the backend."""
 
     ticker: str
+    name: str | None = Field(default=None, description="Company or fund name, when known")
     favourite: bool
     price: float | None
     currency: str | None

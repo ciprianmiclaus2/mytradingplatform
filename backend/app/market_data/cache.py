@@ -92,6 +92,25 @@ CURRENT_PRICES = register_dataset(
     )
 )
 
+# Display names (company or fund) per ticker, from the latest quotes. Kept apart from
+# current_prices so that dataset's schema is unchanged; can be rebuilt by refreshing.
+TICKER_NAMES = register_dataset(
+    DatasetSchema(
+        "ticker_names",
+        1,
+        pa.schema(
+            [
+                pa.field("ticker", pa.string(), nullable=False),
+                pa.field("name", pa.string(), nullable=False),
+                pa.field("updated_at", UTC_TS, nullable=False),
+            ]
+        ),
+        key=("ticker",),
+        path=PurePosixPath("market_data/names.parquet"),
+        description="Company or fund name per ticker, from the latest quotes",
+    )
+)
+
 PRICE_HISTORY = register_dataset(
     DatasetSchema(
         "price_history",
@@ -241,6 +260,44 @@ def build_price_history(store: ParquetStore) -> pa.Table:
 PRICE_HISTORY_DERIVED = derived_registry.register(
     DerivedDataset(PRICE_HISTORY, (f"{CLOSE_PRICES_DIR}/*.parquet",), build_price_history)
 )
+
+
+# -- ticker names ---------------------------------------------------------------------------
+
+NAME_MAX = 200
+
+
+class TickerNameCache:
+    """Company or fund names per ticker, updated whenever a quote carries one."""
+
+    def __init__(self, store: ParquetStore) -> None:
+        self.store = store
+
+    def names(self, tickers: list[str] | None = None) -> dict[str, str]:
+        rows = self.store.read(TICKER_NAMES).select(["ticker", "name"]).to_pylist()
+        wanted = None if tickers is None else set(tickers)
+        return {r["ticker"]: r["name"] for r in rows if wanted is None or r["ticker"] in wanted}
+
+    def update(self, quotes: list[PriceQuote]) -> int:
+        """Record the names reported with ``quotes``; returns how many changed."""
+        fresh = {q.ticker: " ".join(q.name.split())[:NAME_MAX] for q in quotes if q.name and q.name.strip()}
+        if not fresh:
+            return 0
+        changed = 0
+
+        def merge(current: pa.Table) -> pa.Table:
+            nonlocal changed
+            rows = {r["ticker"]: r for r in current.to_pylist()}
+            for quote in quotes:
+                name = fresh.get(quote.ticker)
+                if name and (quote.ticker not in rows or rows[quote.ticker]["name"] != name):
+                    rows[quote.ticker] = {"ticker": quote.ticker, "name": name, "updated_at": quote.fetched_at}
+                    changed += 1
+            return pa.Table.from_pylist(sorted(rows.values(), key=lambda r: r["ticker"]), schema=TICKER_NAMES.schema)
+
+        if set(fresh.items()) - set(self.names(list(fresh)).items()):
+            self.store.update(TICKER_NAMES, merge)
+        return changed
 
 
 # -- current prices -------------------------------------------------------------------------

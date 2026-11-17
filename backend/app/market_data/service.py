@@ -19,6 +19,7 @@ from app.market_data.cache import (
     CurrentPriceCache,
     HistoricalCache,
     RefreshStatusStore,
+    TickerNameCache,
 )
 from app.market_data.models import (
     DailyBar,
@@ -77,6 +78,7 @@ class MarketDataService:
         self.clock = clock
         self.history_cache = HistoricalCache(store)
         self.current_cache = CurrentPriceCache(store, archive_threshold)
+        self.names = TickerNameCache(store)
         self.refresh_status = RefreshStatusStore(store)
         # One history download per ticker at a time; concurrent callers wait and reuse it.
         self._history_locks: dict[str, threading.Lock] = {}
@@ -203,9 +205,12 @@ class MarketDataService:
         """Latest cached quote per ticker (no provider call). None if never fetched."""
         quotes = self.current_cache.latest(tickers)
         states = self.refresh_status.ticker_states()
+        names = self.names.names(tickers)
         result: dict[str, LatestPrice | None] = {}
         for ticker in tickers:
             quote = quotes.get(ticker)
+            if quote is not None and ticker in names:
+                quote = quote.model_copy(update={"name": names[ticker]})
             result[ticker] = self._enrich(quote, states.get(ticker)) if quote else None
         return result
 
@@ -255,6 +260,7 @@ class MarketDataService:
 
         quotes, errors = self._fetch_quotes(unique)
         self.current_cache.append(quotes)
+        self.names.update(quotes)
         completed = self.clock()
 
         if not unique or not errors:
@@ -293,6 +299,7 @@ class MarketDataService:
         quotes, errors = self._fetch_quotes([ticker])
         if quotes:
             self.current_cache.append(quotes)
+            self.names.update(quotes)
         self._save_status([q.ticker for q in quotes], errors, self.clock(), None)
         if errors:
             err = errors[0]

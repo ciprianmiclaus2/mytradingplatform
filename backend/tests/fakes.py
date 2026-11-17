@@ -35,6 +35,7 @@ class FakeProvider(BaseMarketDataProvider):
         previous_close: float | None = None,
         timestamp: datetime = FIXED_NOW,
         delayed: bool | None = True,
+        name: str | None = None,
     ) -> None:
         self.quotes[ticker] = PriceQuote(
             ticker=ticker,
@@ -46,6 +47,7 @@ class FakeProvider(BaseMarketDataProvider):
             provider=self.name,
             delayed=delayed,
             fetched_at=FIXED_NOW,
+            name=name,
         )
 
     # -- provider interface ---------------------------------------------------------------

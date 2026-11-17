@@ -9,7 +9,7 @@ import { StrategyPane } from './StrategyPane'
 const watchlist = portfolio({ tickers: ['AAPL', 'MSFT', 'NEW'], favourites: ['MSFT'] })
 
 const results: Record<string, ReturnType<typeof tickerResult>> = {
-  AAPL: tickerResult('AAPL', { signal: 'BUY', is_new_signal: true, metrics: { mean: 105.123, standard_deviation: 2.5, z_score: -2.04 } }),
+  AAPL: tickerResult('AAPL', { name: 'Apple Inc.', signal: 'BUY', is_new_signal: true, metrics: { mean: 105.123, standard_deviation: 2.5, z_score: -2.04 } }),
   MSFT: tickerResult('MSFT', { signal: 'SELL', current_price: 420, metrics: { mean: 400, standard_deviation: 9, z_score: 2.22 } }),
   NEW: tickerResult('NEW', { status: 'INSUFFICIENT_DATA', message: 'Need 20 sessions, have 3', metrics: { mean: null, standard_deviation: null, z_score: null } }),
 }
@@ -118,6 +118,15 @@ describe('StrategyPane', () => {
     const row = status.closest('tr')!
     const cells = within(row).getAllByRole('cell').map((c) => c.textContent)
     expect(cells.slice(4, 8)).toEqual(['—', '—', '—', ''])
+  })
+
+  it('shows the company name when hovering a ticker', async () => {
+    setup()
+    renderPane(StrategyPane, { config: savedConfig })
+    const table = await screen.findByRole('table', { name: 'Mean Reversion results' })
+    expect(await within(table).findByText('AAPL')).toHaveAttribute('title', 'Apple Inc.')
+    expect(within(table).getByText('MSFT')).not.toHaveAttribute('title')
+    expect(within(table).getByRole('link', { name: 'AAPL' })).toHaveAttribute('href', 'https://finance.yahoo.com/quote/AAPL/')
   })
 
   it('sorts by z-score', async () => {

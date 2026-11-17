@@ -90,7 +90,7 @@ def test_default_app_runs_mean_reversion(client: TestClient, fake_provider: Fake
     today = datetime.now(UTC).date()
     closes = {today - timedelta(days=i): (98.0 if i % 2 else 102.0) for i in range(1, 60)}
     fake_provider.set_closes("AAPL", closes)
-    fake_provider.set_quote("AAPL", 95.0, previous_close=97.0, timestamp=datetime.now(UTC))
+    fake_provider.set_quote("AAPL", 95.0, previous_close=97.0, timestamp=datetime.now(UTC), name="Apple Inc.")
     client.post("/api/market-data/refresh", json={"extra_tickers": ["AAPL"]})
 
     listed = client.get("/api/strategies").json()
@@ -100,7 +100,7 @@ def test_default_app_runs_mean_reversion(client: TestClient, fake_provider: Fake
                        json={"tickers": ["AAPL"], "config": {"lookback_days": 10}, "instance_id": "p1"})
     assert resp.status_code == 200
     [row] = resp.json()["results"]
-    assert row["status"] == "OK" and row["signal"] == "BUY"
+    assert row["status"] == "OK" and row["signal"] == "BUY" and row["name"] == "Apple Inc."
     assert row["metrics"] == {"mean": 100.0, "standard_deviation": 2.0, "z_score": -2.5}
 
     bad = client.post("/api/strategies/mean_reversion/run",

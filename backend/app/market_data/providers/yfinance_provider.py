@@ -188,6 +188,7 @@ class YFinanceProvider(BaseMarketDataProvider):
                 logger.warning("unknown exchange timezone", extra={"ticker": ticker, "tz": tz_name})
 
         delay = _finite(info.get("exchangeDataDelayedBy"))
+        name = info.get("longName") or info.get("shortName")
         return PriceQuote(
             ticker=ticker,
             price=price,
@@ -198,6 +199,7 @@ class YFinanceProvider(BaseMarketDataProvider):
             provider=self.name,
             delayed=True if delay and delay > 0 else None,
             fetched_at=fetched_at,
+            name=name.strip() if isinstance(name, str) and name.strip() else None,
         )
 
     def get_current_prices(self, tickers: list[str]) -> dict[str, PriceQuote | ProviderError]:

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { getBrokerPositions, refreshAllBrokerAccounts, refreshBrokerAccount } from '../../api/brokers'
 import { DataGrid, type Column, type FooterRow } from '../../components/DataGrid'
+import { TickerLink } from '../../components/TickerLink'
 import { buttonClass } from '../../components/Modal'
 import { notifyDataChanged } from '../../hooks/dataVersion'
 import { errorMessage, useApiData } from '../../hooks/useApiData'
@@ -18,6 +19,7 @@ import {
 import { PaneMessage, PaneToolbar, StaleMarker } from '../common'
 import { readString } from '../config'
 import type { PaneProps } from '../types'
+import { yahooTickerForPosition } from '../../utils/yahoo'
 import { SnapTradeSettingsDialog } from './SnapTradeSettingsDialog'
 
 /** Positions of one broker account (via SnapTrade), valued with live market prices. */
@@ -170,9 +172,11 @@ function AccountPositions({ account }: { account: BrokerAccountView }) {
       header: 'Symbol',
       sortValue: (p) => p.ticker ?? p.symbol,
       render: (p) => (
-        <span className="font-medium" title={[p.description, p.ticker && p.ticker !== p.symbol ? `Market data: ${p.ticker}` : null, p.kind].filter(Boolean).join(' · ')}>
-          {p.symbol}
-        </span>
+        <TickerLink
+          label={p.symbol}
+          ticker={yahooTickerForPosition(p)}
+          title={[p.description, p.ticker && p.ticker !== p.symbol ? `Market data: ${p.ticker}` : null, p.kind].filter(Boolean).join(' · ')}
+        />
       ),
     },
     { key: 'quantity', header: 'Quantity', align: 'right', sortValue: (p) => p.quantity, render: (p) => formatQuantity(p.quantity) },

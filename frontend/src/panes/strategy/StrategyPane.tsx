@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { TickerLink } from '../../components/TickerLink'
 import { runStrategy } from '../../api/strategies'
 import { DataGrid, type Column } from '../../components/DataGrid'
 import { buttonClass, Modal } from '../../components/Modal'
@@ -131,7 +132,7 @@ function StrategyResults({ paneId, config, schema, portfolios, accounts, onEdit 
   )
 
   const columns: Column<TickerResult>[] = [
-    { key: 'ticker', header: 'Ticker', sortValue: (r) => r.ticker, render: (r) => <span className="font-medium">{r.ticker}</span> },
+    { key: 'ticker', header: 'Ticker', sortValue: (r) => r.ticker, render: (r) => <TickerLink label={r.ticker} ticker={r.ticker} title={r.name} /> },
     {
       key: 'price',
       header: 'Price',

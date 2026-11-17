@@ -102,6 +102,7 @@ class PortfolioService:
             rows.append(
                 QuoteRow(
                     ticker=ticker,
+                    name=p.name if p else None,
                     favourite=ticker in favourites,
                     price=p.price if p else None,
                     currency=p.currency if p else None,

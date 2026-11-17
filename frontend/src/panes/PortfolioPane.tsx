@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { TickerLink } from '../components/TickerLink'
 import { addTicker, getQuotes, removeTicker, setFavourite } from '../api/portfolios'
 import { DataGrid, type Column } from '../components/DataGrid'
 import { PortfolioPicker } from '../components/PortfolioPicker'
@@ -83,7 +84,7 @@ function PortfolioQuotes({ portfolio }: { portfolio: Portfolio }) {
           </button>
         ),
       },
-      { key: 'ticker', header: 'Ticker', sortValue: (r) => r.ticker, render: (r) => <span className="font-medium">{r.ticker}</span> },
+      { key: 'ticker', header: 'Ticker', sortValue: (r) => r.ticker, render: (r) => <TickerLink label={r.ticker} ticker={r.ticker} title={r.name} /> },
       {
         key: 'price',
         header: 'Price',
