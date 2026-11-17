@@ -23,7 +23,6 @@ PORTFOLIOS = register_dataset(
                 pa.field("name", pa.string(), nullable=False),
                 pa.field("description", pa.string(), nullable=False),
                 pa.field("type", pa.string(), nullable=False),
-                # Watchlists only; empty for positions portfolios (derived from positions).
                 pa.field("tickers", pa.list_(pa.string()), nullable=False),
                 pa.field("favourites", pa.list_(pa.string()), nullable=False),
                 pa.field("created_at", UTC_TS, nullable=False),
@@ -50,6 +49,22 @@ class PortfolioRepository:
 
     def save(self, portfolios: list[Portfolio]) -> None:
         self.store.write(PORTFOLIOS, _to_table(portfolios))
+
+    def drop_type_needed(self, type_value: str) -> bool:
+        return type_value in self.store.read(PORTFOLIOS).column("type").to_pylist()
+
+    def drop_type(self, type_value: str) -> list[str]:
+        """Remove every record of a (possibly retired) type; returns the removed names."""
+        removed: list[str] = []
+
+        def transform(table: pa.Table) -> pa.Table:
+            rows = table.to_pylist()
+            removed.extend(r["name"] for r in rows if r["type"] == type_value)
+            return pa.Table.from_pylist([r for r in rows if r["type"] != type_value], schema=PORTFOLIOS.schema)
+
+        if self.drop_type_needed(type_value):
+            self.store.update(PORTFOLIOS, transform)
+        return removed
 
     def modify(self, change: Callable[[list[Portfolio]], list[Portfolio]]) -> list[Portfolio]:
         """Read-modify-write under the data lock. ``change`` may raise to abort."""

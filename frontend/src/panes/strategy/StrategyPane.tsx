@@ -3,9 +3,10 @@ import { runStrategy } from '../../api/strategies'
 import { DataGrid, type Column } from '../../components/DataGrid'
 import { buttonClass, Modal } from '../../components/Modal'
 import { useApiData } from '../../hooks/useApiData'
+import { useBrokerAccounts } from '../../hooks/useBrokerAccounts'
 import { usePortfolios } from '../../hooks/usePortfolios'
 import { useStrategies } from '../../hooks/useStrategies'
-import type { CalculationStatus, OutputColumn, Portfolio, StrategySchema, TickerResult } from '../../types/api'
+import type { BrokerAccountView, CalculationStatus, OutputColumn, Portfolio, StrategySchema, TickerResult } from '../../types/api'
 import { formatNumber, formatPercent, formatPrice, formatSigned, formatTime, gainLossClass } from '../../utils/format'
 import { PaneMessage, PaneToolbar, StaleMarker } from '../common'
 import type { PaneProps } from '../types'
@@ -18,10 +19,13 @@ import { StrategySetup } from './StrategySetup'
 export function StrategyPane({ pane, onConfigChange }: PaneProps) {
   const strategies = useStrategies()
   const portfolios = usePortfolios()
+  const brokerAccounts = useBrokerAccounts()
   const config = readStrategyConfig(pane.config)
   const [editing, setEditing] = useState(false)
+  // Broker accounts are optional (SnapTrade may not be set up): wait for them only while they load.
+  const accounts = brokerAccounts.data?.accounts ?? []
 
-  if (!strategies.data || !portfolios.data) {
+  if (!strategies.data || !portfolios.data || (!brokerAccounts.data && brokerAccounts.loading)) {
     const failed = strategies.error ?? portfolios.error
     return (
       <PaneMessage
@@ -42,6 +46,7 @@ export function StrategyPane({ pane, onConfigChange }: PaneProps) {
       <StrategySetup
         strategies={strategies.data}
         portfolios={portfolios.data}
+        accounts={accounts}
         initial={config}
         onSave={(next) => {
           onConfigChange({ ...next })
@@ -69,6 +74,7 @@ export function StrategyPane({ pane, onConfigChange }: PaneProps) {
       config={config}
       schema={schema}
       portfolios={portfolios.data}
+      accounts={accounts}
       onEdit={() => setEditing(true)}
     />
   )
@@ -111,12 +117,13 @@ interface ResultsProps {
   config: StrategyPaneConfig
   schema: StrategySchema
   portfolios: Portfolio[]
+  accounts: BrokerAccountView[]
   onEdit: () => void
 }
 
-function StrategyResults({ paneId, config, schema, portfolios, onEdit }: ResultsProps) {
+function StrategyResults({ paneId, config, schema, portfolios, accounts, onEdit }: ResultsProps) {
   const [showAbout, setShowAbout] = useState(false)
-  const { tickers, error: sourceError } = resolveTickers(config.source, portfolios)
+  const { tickers, error: sourceError } = resolveTickers(config.source, portfolios, accounts)
   // Re-run whenever the strategy, its settings or the resolved tickers change.
   const runKey = tickers.length > 0 ? JSON.stringify([paneId, config.strategy, config.params, tickers]) : null
   const run = useApiData(runKey, (signal) =>
@@ -204,7 +211,7 @@ function StrategyResults({ paneId, config, schema, portfolios, onEdit }: Results
     <div className="flex h-full flex-col">
       <PaneToolbar>
         <span className="text-sm font-medium text-slate-700">{schema.title}</span>
-        <span className="text-xs text-slate-500">{describeSource(config.source, portfolios)}</span>
+        <span className="text-xs text-slate-500">{describeSource(config.source, portfolios, accounts)}</span>
         <span className="hidden truncate text-xs text-slate-400 md:inline">{settingsSummary(schema, config)}</span>
         <span className="ml-auto text-xs text-slate-400">{run.data ? `Calculated ${formatTime(run.data.calculated_at)}` : ''}</span>
         <button type="button" onClick={run.reload} disabled={!runKey || run.loading} className={buttonClass} aria-label="Recalculate">

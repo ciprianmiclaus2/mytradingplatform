@@ -3,7 +3,8 @@ import { ApiError } from '../../api/client'
 import { runStrategy } from '../../api/strategies'
 import { buttonClass, FormError, inputClass, primaryButtonClass } from '../../components/Modal'
 import { errorMessage } from '../../hooks/useApiData'
-import type { Portfolio, StrategySchema } from '../../types/api'
+import { accountLabel } from '../../hooks/useBrokerAccounts'
+import type { BrokerAccountView, Portfolio, StrategySchema } from '../../types/api'
 import {
   initialFormValues,
   parseTickerList,
@@ -18,6 +19,8 @@ import { StrategyExplanation } from './StrategyExplanation'
 interface Props {
   strategies: StrategySchema[]
   portfolios: Portfolio[]
+  /** Broker accounts ([] when SnapTrade is not set up). */
+  accounts: BrokerAccountView[]
   initial: StrategyPaneConfig | undefined
   onSave: (config: StrategyPaneConfig) => void
   /** Present when the pane already has a configuration to go back to. */
@@ -27,7 +30,7 @@ interface Props {
 type SourceKind = TickerSource['kind']
 
 /** Choose a strategy, its settings (form generated from the schema) and the ticker source. */
-export function StrategySetup({ strategies, portfolios, initial, onSave, onCancel }: Props) {
+export function StrategySetup({ strategies, portfolios, accounts, initial, onSave, onCancel }: Props) {
   const uid = useId()
   const initialSchema = strategies.find((s) => s.name === initial?.strategy) ?? strategies[0]
   const [strategyName, setStrategyName] = useState(initialSchema?.name ?? '')
@@ -40,8 +43,11 @@ export function StrategySetup({ strategies, portfolios, initial, onSave, onCance
   const initialSource = initial?.source
   const [sourceKind, setSourceKind] = useState<SourceKind>(initialSource?.kind ?? 'portfolio')
   const [portfolioId, setPortfolioId] = useState(
-    initialSource && initialSource.kind !== 'manual' ? initialSource.portfolioId : (portfolios[0]?.id ?? ''),
+    initialSource && (initialSource.kind === 'portfolio' || initialSource.kind === 'favourites')
+      ? initialSource.portfolioId
+      : (portfolios[0]?.id ?? ''),
   )
+  const [accountId, setAccountId] = useState(initialSource?.kind === 'account' ? initialSource.accountId : (accounts[0]?.id ?? ''))
   const [manualText, setManualText] = useState(initialSource?.kind === 'manual' ? initialSource.tickers.join(', ') : '')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -76,6 +82,12 @@ export function StrategySetup({ strategies, portfolios, initial, onSave, onCance
         return
       }
       source = { kind: 'manual', tickers }
+    } else if (sourceKind === 'account') {
+      if (!accounts.some((a) => a.id === accountId)) {
+        setError('Choose a broker account.')
+        return
+      }
+      source = { kind: 'account', accountId }
     } else {
       if (!portfolios.some((p) => p.id === portfolioId)) {
         setError('Choose a portfolio.')
@@ -145,9 +157,13 @@ export function StrategySetup({ strategies, portfolios, initial, onSave, onCance
             [
               ['portfolio', 'Portfolio'],
               ['favourites', 'Portfolio favourites'],
+              ['account', 'Broker account'],
               ['manual', 'Manual selection'],
             ] as const
-          ).map(([kind, text]) => (
+          )
+            // Offer broker accounts only when there are some (or the saved source is one).
+            .filter(([kind]) => kind !== 'account' || accounts.length > 0 || initialSource?.kind === 'account')
+            .map(([kind, text]) => (
             <label key={kind} className="flex items-center gap-1.5">
               <input type="radio" name={`${uid}-source`} checked={sourceKind === kind} onChange={() => setSourceKind(kind)} />
               {text}
@@ -164,12 +180,26 @@ export function StrategySetup({ strategies, portfolios, initial, onSave, onCance
               onChange={(e) => setManualText(e.target.value)}
               className={inputClass}
             />
+          ) : sourceKind === 'account' ? (
+            <>
+              <select aria-label="Source account" value={accountId} onChange={(e) => setAccountId(e.target.value)} className={inputClass}>
+                {!accounts.some((a) => a.id === accountId) && <option value="">Choose…</option>}
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {accountLabel(a)} ({a.tickers.length} ticker{a.tickers.length === 1 ? '' : 's'})
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-slate-500">
+                The account&apos;s stocks and funds as of its last SnapTrade refresh. Options and cash are not included.
+              </p>
+            </>
           ) : (
             <select aria-label="Source portfolio" value={portfolioId} onChange={(e) => setPortfolioId(e.target.value)} className={inputClass}>
               {!portfolios.some((p) => p.id === portfolioId) && <option value="">Choose…</option>}
               {portfolios.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.name} ({p.type === 'watchlist' ? 'watchlist' : 'positions'})
+                  {p.name}
                 </option>
               ))}
             </select>

@@ -1,10 +1,13 @@
-import type { ParameterValue, Portfolio, StrategyParameter } from '../../types/api'
+import { accountLabel } from '../../hooks/useBrokerAccounts'
+import type { BrokerAccountView, ParameterValue, Portfolio, StrategyParameter } from '../../types/api'
 import { readObject, readString } from '../config'
 
 export type TickerSource =
   | { kind: 'portfolio'; portfolioId: string }
   | { kind: 'favourites'; portfolioId: string }
   | { kind: 'manual'; tickers: string[] }
+  /** The tickers held in a broker account at its last SnapTrade refresh. */
+  | { kind: 'account'; accountId: string }
 
 export interface StrategyPaneConfig {
   strategy: string
@@ -33,6 +36,9 @@ function readSource(raw: Record<string, unknown> | undefined): TickerSource | un
   if ((raw.kind === 'portfolio' || raw.kind === 'favourites') && typeof raw.portfolioId === 'string' && raw.portfolioId) {
     return { kind: raw.kind, portfolioId: raw.portfolioId }
   }
+  if (raw.kind === 'account' && typeof raw.accountId === 'string' && raw.accountId) {
+    return { kind: 'account', accountId: raw.accountId }
+  }
   if (raw.kind === 'manual' && Array.isArray(raw.tickers)) {
     const { tickers } = parseTickerList(raw.tickers.filter((t): t is string => typeof t === 'string').join(' '))
     return { kind: 'manual', tickers }
@@ -52,16 +58,29 @@ export function readStrategyConfig(config: Record<string, unknown>): StrategyPan
   return { strategy, params, source }
 }
 
-/** Tickers a source resolves to, given the current portfolios. */
-export function resolveTickers(source: TickerSource, portfolios: Portfolio[]): { tickers: string[]; error?: string } {
+/** Tickers a source resolves to, given the current portfolios and broker accounts. */
+export function resolveTickers(
+  source: TickerSource,
+  portfolios: Portfolio[],
+  accounts: BrokerAccountView[] = [],
+): { tickers: string[]; error?: string } {
   if (source.kind === 'manual') return { tickers: source.tickers }
+  if (source.kind === 'account') {
+    const account = accounts.find((a) => a.id === source.accountId)
+    if (!account) return { tickers: [], error: 'The broker account used by this strategy is not listed. Refresh it, or open Settings to choose another source.' }
+    return { tickers: account.tickers }
+  }
   const portfolio = portfolios.find((p) => p.id === source.portfolioId)
   if (!portfolio) return { tickers: [], error: 'The portfolio used by this strategy no longer exists. Open Settings to choose another.' }
   return { tickers: source.kind === 'favourites' ? portfolio.favourites : portfolio.tickers }
 }
 
-export function describeSource(source: TickerSource, portfolios: Portfolio[]): string {
+export function describeSource(source: TickerSource, portfolios: Portfolio[], accounts: BrokerAccountView[] = []): string {
   if (source.kind === 'manual') return `${source.tickers.length} manual ticker${source.tickers.length === 1 ? '' : 's'}`
+  if (source.kind === 'account') {
+    const account = accounts.find((a) => a.id === source.accountId)
+    return account ? accountLabel(account) : 'missing account'
+  }
   const name = portfolios.find((p) => p.id === source.portfolioId)?.name ?? 'missing portfolio'
   return source.kind === 'favourites' ? `${name} favourites` : name
 }

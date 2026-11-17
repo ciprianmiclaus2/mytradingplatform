@@ -1,6 +1,7 @@
 import { portfolioLabel, positionsLabel, strategyLabel } from './labels'
 import { PortfolioPane } from './PortfolioPane'
-import { PositionsPane } from './positions/PositionsPane'
+import { BrokerPositionsPane } from './broker/BrokerPositionsPane'
+import { POSITIONS_PANE } from './broker/constants'
 import { StrategyPane } from './strategy/StrategyPane'
 import type { PaneDefinition } from './types'
 
@@ -20,13 +21,13 @@ const definitions: PaneDefinition[] = [
     label: portfolioLabel,
   },
   {
-    type: 'positions',
+    type: POSITIONS_PANE,
     title: 'Positions',
-    description: 'Positions with valuation and P&L',
-    component: PositionsPane,
+    description: 'A broker account\'s positions (via SnapTrade) with valuation and P&L',
+    component: BrokerPositionsPane,
     defaultSize: { w: 6, h: 10 },
     minSize: { w: 4, h: 4 },
-    defaultConfig: () => ({ showClosed: false }),
+    defaultConfig: () => ({}),
     label: positionsLabel,
   },
   {

@@ -140,7 +140,7 @@ def test_write_failure_preserves_original_and_cleans_up(
         raise OSError("disk full")
 
     monkeypatch.setattr(parquet_mod.pq, "write_table", failing_write)
-    with pytest.raises(PersistenceError, match="Failed to write positions/sample.parquet: disk full"):
+    with pytest.raises(PersistenceError, match="Failed to write strategies/sample.parquet: disk full"):
         store.write(SAMPLE, sample_rows(("b", "2")))
 
     assert _file(store).read_bytes() == before
@@ -166,9 +166,9 @@ def test_replace_failure_preserves_original_and_cleans_up(
 
 
 def test_stale_temp_files_are_removed(store: ParquetStore) -> None:
-    leftover = store.data_dir / "positions" / ".tmp-sample.parquet.abc.tmp"
+    leftover = store.data_dir / "strategies" / ".tmp-sample.parquet.abc.tmp"
     leftover.write_bytes(b"partial")
-    keep = store.data_dir / "positions" / "keep.parquet"
+    keep = store.data_dir / "strategies" / "keep.parquet"
     keep.write_bytes(b"x")
 
     assert store.remove_stale_temp_files() == 1
@@ -217,7 +217,7 @@ def test_column_type_drift_is_rejected(store: ParquetStore) -> None:
 def test_corrupt_file_is_reported(store: ParquetStore) -> None:
     _file(store).parent.mkdir(parents=True, exist_ok=True)
     _file(store).write_bytes(b"this is not parquet")
-    with pytest.raises(CorruptFileError, match="positions/sample.parquet cannot be read"):
+    with pytest.raises(CorruptFileError, match="strategies/sample.parquet cannot be read"):
         store.read(SAMPLE)
     with pytest.raises(CorruptFileError):
         store.read_metadata(SAMPLE)
@@ -226,7 +226,7 @@ def test_corrupt_file_is_reported(store: ParquetStore) -> None:
 def test_validate_registered_checks_existing_files_only(store: ParquetStore) -> None:
     assert store.validate_registered([SAMPLE]) == []
     store.write(SAMPLE, sample_rows(("a", "1")))
-    assert store.validate_registered([SAMPLE]) == ["positions/sample.parquet"]
+    assert store.validate_registered([SAMPLE]) == ["strategies/sample.parquet"]
 
 
 # -- paths / metadata / delete -------------------------------------------------------------

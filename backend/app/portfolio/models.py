@@ -15,7 +15,10 @@ DESCRIPTION_MAX = 500
 
 class PortfolioType(StrEnum):
     WATCHLIST = "watchlist"
-    POSITIONS = "positions"
+
+
+# Positions lists were replaced by broker accounts (SnapTrade); old records are removed at startup.
+RETIRED_POSITIONS_TYPE = "positions"
 
 
 class Portfolio(BaseModel):
@@ -25,9 +28,7 @@ class Portfolio(BaseModel):
     name: str
     description: str
     type: PortfolioType
-    tickers: list[str] = Field(
-        description="Watchlist: maintained by the user. Positions: tickers of open positions (read-only)."
-    )
+    tickers: list[str]
     favourites: list[str] = Field(description="Subset of tickers")
     created_at: datetime
     updated_at: datetime

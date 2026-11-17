@@ -22,6 +22,18 @@ describe('dashboardReducer', () => {
     expect(state.layouts.map(({ x, y }) => [x, y])).toEqual([[0, 0], [6, 0]])
   })
 
+  it('adds several configured panes at once, two tiles per row below existing tiles', () => {
+    const start = defaultDashboard() // two tiles in the first row (height 10)
+    const configs = [{ accountId: 'a1' }, { accountId: 'a2' }, { accountId: 'a3' }]
+    const state = dashboardReducer(start, { type: 'addPanes', paneType: 'positions', configs })
+    const added = state.panes.slice(2)
+    expect(added.map((p) => p.config)).toEqual(configs)
+    expect(state.groups).toHaveLength(5)
+    expect(state.layouts.slice(2).map(({ x, y }) => [x, y])).toEqual([[0, 10], [6, 10], [0, 20]])
+    expect(dashboardReducer(start, { type: 'addPanes', paneType: 'positions', configs: [] })).toBe(start)
+    expect(dashboardReducer(start, { type: 'addPanes', paneType: 'nope', configs })).toBe(start)
+  })
+
   it('adds each pane in its own tile, with unique ids, below existing tiles', () => {
     let state = dashboardReducer(empty, { type: 'addPane', paneType: 'strategy' })
     state = dashboardReducer(state, { type: 'addPane', paneType: 'strategy' })

@@ -1,5 +1,6 @@
 /** Automatic tab labels for the built-in pane types (pure functions). */
 import type { Pane } from '../dashboard/types'
+import { accountLabel } from '../hooks/useBrokerAccounts'
 import { selectPortfolio } from '../hooks/usePortfolios'
 import { readString } from './config'
 import { describeSource, readStrategyConfig } from './strategy/config'
@@ -7,22 +8,27 @@ import type { LabelData } from './types'
 
 /** Portfolio pane: the portfolio's name. */
 export function portfolioLabel(pane: Pane, { portfolios }: LabelData): string | undefined {
-  return selectPortfolio(portfolios, readString(pane.config, 'portfolioId'), ['watchlist', 'positions']).portfolio?.name
+  return selectPortfolio(portfolios, readString(pane.config, 'portfolioId'), ['watchlist']).portfolio?.name
 }
 
-/** Positions pane: "Positions · <list name>". */
-export function positionsLabel(pane: Pane, { portfolios }: LabelData): string | undefined {
-  const name = selectPortfolio(portfolios, readString(pane.config, 'portfolioId'), ['positions']).portfolio?.name
-  return name ? `Positions · ${name}` : undefined
+/** Positions pane: "Positions · <account>" (the first account when none is chosen yet). */
+export function positionsLabel(pane: Pane, { accounts }: LabelData): string | undefined {
+  if (!accounts) return undefined
+  const saved = readString(pane.config, 'accountId')
+  const account = saved ? accounts.find((a) => a.id === saved) : accounts[0]
+  return account ? `Positions · ${accountLabel(account)}` : undefined
 }
 
 /** Strategy pane: "<strategy> · <ticker source>", or "New strategy" before it is configured. */
-export function strategyLabel(pane: Pane, { portfolios, strategies }: LabelData): string | undefined {
+export function strategyLabel(pane: Pane, { portfolios, strategies, accounts }: LabelData): string | undefined {
   const config = readStrategyConfig(pane.config)
   if (!config) return 'New strategy'
   const title = strategies?.find((s) => s.name === config.strategy)?.title
-  if (!title || (config.source.kind !== 'manual' && !portfolios)) return undefined
-  return `${title} · ${describeSource(config.source, portfolios ?? [])}`
+  const kind = config.source.kind
+  if (!title || ((kind === 'portfolio' || kind === 'favourites') && !portfolios) || (kind === 'account' && !accounts)) {
+    return undefined
+  }
+  return `${title} · ${describeSource(config.source, portfolios ?? [], accounts ?? [])}`
 }
 
 /**

@@ -12,9 +12,9 @@ import { readString } from './config'
 import { PaneMessage, PaneToolbar, StaleMarker } from './common'
 import type { PaneProps } from './types'
 
-const TYPES = ['watchlist', 'positions'] as const
+const TYPES = ['watchlist'] as const
 
-/** Prices and daily change for one portfolio (watchlist or positions list). */
+/** Prices and daily change for one portfolio (watchlist). */
 export function PortfolioPane({ pane, onConfigChange }: PaneProps) {
   const portfolios = usePortfolios()
   const savedId = readString(pane.config, 'portfolioId')
@@ -49,7 +49,6 @@ function PortfolioQuotes({ portfolio }: { portfolio: Portfolio }) {
   const quotes = useApiData(`quotes:${portfolio.id}`, (signal) => getQuotes(portfolio.id, signal))
   const [busy, setBusy] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
-  const editable = portfolio.type === 'watchlist'
 
   const act = async (action: () => Promise<unknown>) => {
     setBusy(true)
@@ -119,9 +118,7 @@ function PortfolioQuotes({ portfolio }: { portfolio: Portfolio }) {
         cellClassName: (r) => gainLossClass(r.daily_change_pct),
         render: (r) => formatPercent(r.daily_change_pct),
       },
-  ]
-  if (editable) {
-    columns.push({
+      {
         key: 'actions',
         header: '',
         label: 'Actions',
@@ -138,19 +135,15 @@ function PortfolioQuotes({ portfolio }: { portfolio: Portfolio }) {
             ×
           </button>
         ),
-    })
-  }
+      },
+  ]
 
   return (
     <div className="min-h-0 flex-1">
       <div className="flex items-center gap-2 px-2 py-1.5">
-        {editable ? (
-          <div className="w-48">
-            <TickerSearch disabled={busy} label={`Add ticker to ${portfolio.name}`} onSelect={(t) => act(() => addTicker(portfolio.id, t))} />
-          </div>
-        ) : (
-          <span className="text-xs text-slate-500">Tickers of the open positions in this list.</span>
-        )}
+        <div className="w-48">
+          <TickerSearch disabled={busy} label={`Add ticker to ${portfolio.name}`} onSelect={(t) => act(() => addTicker(portfolio.id, t))} />
+        </div>
         {busy && <span role="status" className="text-xs text-slate-500">Saving…</span>}
         {actionError && (
           <span role="alert" className="text-xs text-red-600">
@@ -166,7 +159,7 @@ function PortfolioQuotes({ portfolio }: { portfolio: Portfolio }) {
         loading={quotes.loading}
         error={quotes.error}
         onRetry={quotes.reload}
-        emptyMessage={editable ? 'No tickers yet. Add one above.' : 'No open positions in this list.'}
+        emptyMessage="No tickers yet. Add one above."
       />
     </div>
   )

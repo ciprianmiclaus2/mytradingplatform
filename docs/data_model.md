@@ -9,7 +9,7 @@ All persisted data lives under `DATA_DIR`. See the [README](../README.md#data-di
   - `mtp_dataset` holds the dataset name and `mtp_schema_version` its integer version. Both are checked on every read.
   - Keys starting with `x_` carry extra information, e.g. `x_source_fingerprint` for derived data.
 - **Types:**
-  - User-entered money and quantities: `decimal128(20,8)` (positions). Market prices from the provider: `float64`.
+  - Broker quantities and prices (from SnapTrade's decimal strings): `decimal128(28,10)`. Market prices from the provider: `float64`.
   - Timestamps: `timestamp[us, tz=UTC]`.
   - Identifiers: strings.
 - **Data schema version:** `metadata/schema_version.json` holds the version of the data directory as a whole. It is currently `1`.
@@ -22,8 +22,9 @@ All persisted data lives under `DATA_DIR`. See the [README](../README.md#data-di
 | `close_price_coverage` | `market_data/coverage.parquet` | 1 | `ticker, provider, start_date` | Date ranges already fetched |
 | `current_prices` | `market_data/current/current.parquet` (plus archives) | 1 | `ticker, timestamp` | Current-price time series |
 | `price_history` | `market_data/history/history.parquet` | 1 | `ticker, trading_date` | Derived from `close_prices`. Rebuildable |
-| `portfolios` | `portfolios/portfolios.parquet` | 1 | `id` | Watchlists and positions portfolios |
-| `positions` | `positions/positions.parquet` | 1 | `id` | Open and closed positions |
+| `portfolios` | `portfolios/portfolios.parquet` | 1 | `id` | Watchlists |
+| `broker_accounts` | `brokers/accounts.parquet` | 1 | `id` | Accounts as last listed by SnapTrade. A cache: rebuilt by refreshing, not backed up |
+| `broker_positions` | `brokers/positions.parquet` | 1 | (none) | Positions per account at its last refresh. A cache, not backed up |
 | `signals` | `strategies/signals.parquet` | 1 | `id` | Signal transitions per strategy instance and ticker, plus one baseline row (`previous_signal == new_signal`) when an instance first evaluates a ticker |
 
 ### close_prices / price_history
@@ -91,27 +92,46 @@ A price is reported `stale` when its ticker's most recent refresh attempt failed
 | id | string | no | UUID (hex) |
 | name | string | no | 1–100 characters. Unique regardless of case. Runs of spaces are collapsed to one |
 | description | string | no | Up to 500 characters. May be empty |
-| type | string | no | `watchlist` or `positions`. Never changes |
-| tickers | list&lt;string&gt; | no | Watchlists: tickers in the order they were added. Positions portfolios: always empty, because their tickers come from open positions |
+| type | string | no | `watchlist`. (Rows of the retired type `positions` are removed on startup, after a backup) |
+| tickers | list&lt;string&gt; | no | Tickers in the order they were added |
 | favourites | list&lt;string&gt; | no | Always a subset of the portfolio's tickers |
 | created_at, updated_at | timestamp[us, UTC] | no | |
 
-### positions
+### broker_accounts
 
 | Column | Type | Null | Description |
 |---|---|---|---|
-| id | string | no | UUID (hex) |
-| portfolio_id | string | no | A `positions` portfolio. Its positions are deleted along with it |
-| ticker | string | no | At most one `OPEN` row per (portfolio_id, ticker) |
-| currency | string | no | Quote currency when the position was created. Never converted |
-| quantity | decimal128(20,8) | no | Greater than 0 |
-| entry_price | decimal128(20,8) | no | Greater than 0, in the quote's units |
-| entry_date | date32 | yes | Informational. Not in the future |
-| status | string | no | `OPEN` or `CLOSED` |
-| exit_price | decimal128(20,8) | yes | Set when closed. Greater than 0 |
-| exit_date | date32 | yes | Set when closed. On or after `entry_date`, and not in the future |
-| notes | string | no | Up to 1000 characters |
-| created_at, updated_at | timestamp[us, UTC] | no | |
+| id | string | no | SnapTrade account id (UUID) |
+| name | string | no | SnapTrade's `display_name`, or the account kind and number |
+| number | string | no | Masked account number, e.g. `****8443`. May be empty |
+| status | string | yes | `open`, `closed`, `archived` or `unavailable` |
+| kind | string | no | `investment`, `deposit`, ... |
+| net_value, net_value_currency | float64, string | yes | SnapTrade's `net_value` (informational) |
+| listed_at | timestamp[us, UTC] | no | Last time the account list contained this account |
+| positions_refreshed_at | timestamp[us, UTC] | yes | Last successful positions refresh by this app |
+| data_as_of | timestamp[us, UTC] | yes | SnapTrade's `data_freshness.as_of` at that refresh |
+
+`brokers/status.json` holds `accounts_refreshed_at`, the time the account list was last fetched.
+
+### broker_positions
+
+| Column | Type | Null | Description |
+|---|---|---|---|
+| account_id | string | no | A `broker_accounts` id. Replaced as a whole when the account is refreshed |
+| symbol | string | no | The broker's symbol (OCC symbol for options) |
+| ticker | string | yes | Market data ticker, when the instrument maps to one |
+| description | string | yes | |
+| kind | string | no | SnapTrade instrument kind: `stock`, `etf`, `option`, `crypto`, `cash`, ... |
+| units | decimal128(28,10) | no | Negative for short positions |
+| price | decimal128(28,10) | yes | Broker price per unit at the refresh |
+| cost_basis | decimal128(28,10) | yes | Average purchase price per unit (SnapTrade's `cost_basis`) |
+| multiplier | decimal128(28,10) | no | Contract multiplier (options); 1 otherwise |
+| currency | string | yes | ISO 4217 currency of `price` and `cost_basis` |
+| cash_equivalent | bool | no | SnapTrade's `cash_equivalent` |
+
+### SnapTrade credentials
+
+`config/snaptrade.json` (not a dataset): a JSON object with `client_id`, `consumer_key`, `user_id` and `user_secret`. The user fields are `null` for a Personal API key. The folder is mode 0700 and the file 0600 (repaired on read if wider). It is never included in backups and never returned by the API.
 
 ### signals
 

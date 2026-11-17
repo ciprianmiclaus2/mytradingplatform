@@ -6,7 +6,7 @@ My Trading Platform runs locally as a modular monolith: one FastAPI backend proc
 
 ```text
 api/            HTTP routes: request/response models only, no business logic
-<domain>/       services: portfolio, positions, market_data, strategies
+<domain>/       services: portfolio, brokers (SnapTrade), market_data, strategies
 persistence/    the only code that reads or writes files in DATA_DIR
 schemas/        shared API models and the error envelope
 ```
@@ -74,7 +74,7 @@ Whenever derived data is written, a SHA-256 fingerprint of its sources is stored
 
 ### Backups
 
-- **Contents:** each backup is `backups/<UTC timestamp>Z-<reason>/` with a `manifest.json` of SHA-256 checksums. It covers the `portfolios`, `positions`, `strategies` and `metadata` folders. Market data is excluded because it can be downloaded again.
+- **Contents:** each backup is `backups/<UTC timestamp>Z-<reason>/` with a `manifest.json` of SHA-256 checksums. It covers the `portfolios`, `strategies` and `metadata` folders. Market data and the broker cache (`brokers/`) are excluded because they can be downloaded again, and `config/` (the SnapTrade credentials) is never backed up.
 - **Creation:** backups are assembled in a temporary staging folder and then renamed into place, so a half-written backup never looks complete. Only the newest `BACKUP_RETENTION_COUNT` backups are kept.
 - **Restoring:** the checksums are verified first, the current state is backed up, and then each file is replaced atomically. A backup made with a different data schema version is refused.
 - **When backups are taken:** on startup, but skipped if nothing changed since the last backup. Services will also take one before destructive operations.
@@ -144,29 +144,33 @@ API (api/portfolios.py) ─► PortfolioService (portfolio/service.py) ─► Po
 
 - **Read-modify-write:** every change goes through `PortfolioRepository.modify()`, which holds the data lock. A rule violation raised inside the change aborts it and leaves the file untouched.
 - **Ticker checks happen before the lock.** Checking a new ticker may call the provider, so it runs before the lock is taken. The duplicate check is repeated under the lock.
-- **Hooks for positions:** `PositionService` registers these when it is created.
-  - `PortfolioService.position_tickers(portfolio_id)` supplies the tickers of open positions.
-  - `on_deleted` hooks run under the lock when a portfolio is deleted, to remove its positions.
-  - `prune_favourites()` drops favourites that are no longer tickers, e.g. after a position closes.
-- **Refresh support:** `all_tickers()` returns the unique tickers across all portfolios (open positions for positions lists), used by the global refresh.
+- **Hooks:** `on_deleted` hooks run under the lock when a portfolio is deleted, to remove dependent data; `prune_favourites()` drops favourites that are no longer tickers.
+- **Refresh support:** `all_tickers()` returns the unique tickers across all portfolios, used by the global refresh.
+- **Retired positions lists:** manual positions lists (type `positions`) were replaced by broker accounts. On startup, `remove_legacy_positions_lists()` takes a backup and removes any such rows (only when there are some). The old `positions/` folder is left untouched.
 
-## Positions
+## Broker accounts (SnapTrade)
 
 ```text
-API (api/positions.py) ─► PositionService (positions/service.py) ─► PositionRepository ─► ParquetStore
-                                  │            │
-                                  │            └─► calculations.py   valuation, P&L, per-currency totals (pure functions)
-                                  ├─► PortfolioService               portfolio type, ticker derivation, favourites
-                                  └─► MarketDataService              ensure_price() on create; latest prices for valuation
+API (api/brokers.py) ─► BrokerService (brokers/service.py) ─► BrokerRepository ─► ParquetStore (brokers/*.parquet, status.json)
+                              │    │    │
+                              │    │    └─► valuation.py          live/broker price, P&L, per-currency totals (pure, Decimal)
+                              │    ├─► mapping.py                  SnapTrade instrument → stored position + market data ticker
+                              │    └─► CredentialStore             config/snaptrade.json (0600)
+                              ├─► SnapTradeClient (snaptrade.py)  signed HTTPS requests (httpx), read-only
+                              └─► MarketDataService               latest prices for valuation
 ```
 
-- **No ledger:** positions are edited in place.
-- **Storage:** quantities and prices are stored as `decimal128(20,8)`.
-- **Calculations:**
-  - Done with `Decimal`. Market prices (stored as float64) are converted using their shortest string form, so `0.1` becomes exactly `Decimal("0.1")`.
-  - Results are rounded to 8 decimal places and returned as JSON numbers.
-  - A price in a different currency from the position is never used.
-- **Multi-step changes hold the lock throughout:** closing or deleting a position, together with pruning favourites (and the backup before a delete), happens under one data lock hold.
+- **Read-only:** the client implements two SnapTrade calls, `GET /accounts/all` and `GET /accounts/{id}/positions/all`. It cannot place or change orders.
+- **Refresh order:** every refresh lists the accounts first, then fetches positions: all accounts for `POST /api/brokers/refresh` and setup, one account for a pane's refresh. Accounts that are no longer listed are dropped with their positions. A failing account keeps its last positions; the others still refresh.
+- **One SnapTrade operation at a time** (a non-blocking lock): a second refresh gets `409 broker_refresh_in_progress` rather than queueing behind slow SnapTrade calls.
+- **Personal and Commercial keys:** a Personal API key (the free, one-person kind) is only a client ID and consumer key; SnapTrade resolves the user from the key, and requests must not send one. Commercial keys add `userId` and `userSecret`. `SnapTradeCredentials.personal` tells them apart; the user fields are both set or both empty.
+- **Request signing** follows SnapTrade's documented algorithm: the query string carries `clientId` and `timestamp`, plus `userId` and `userSecret` for Commercial keys; the `Signature` header is base64(HMAC-SHA256(consumer key, canonical JSON `{"content": null, "path": ..., "query": ...}`)). The query string is built once and sent exactly as signed. The test suite checks the result against a value computed with `openssl`.
+- **Secrets:** the user secret travels in the query string, so request URLs are never logged (httpx's own request logging is silenced) and never put in error messages. The credentials file is written with `mkstemp` (mode 0600) and an atomic rename; its folder is 0700. The API returns only the last four characters.
+- **Setup checks before saving:** `configure()` lists the accounts with the new credentials first; if SnapTrade rejects them, nothing is saved (`422`).
+- **Ticker mapping** (`mapping.py`): listed instruments (stock, ETF, ADR, closed-end and mutual funds, preferred) map to Yahoo tickers by exchange MIC (`XLON` → `.L`, `XTSE` → `.TO`, US venues none, share classes `BRK.B` → `BRK-B`); crypto maps to `BTC-USD`. Options, cash and unknown exchanges get no ticker.
+- **Valuation:** a cached market price in the position's currency is preferred; a quote in a minor unit (`GBp`, `ZAc`, `ILA`) is converted for a position in the major currency. Otherwise the broker's price at the last refresh is used (`price_source: "broker"`). Quantities and prices from SnapTrade's decimal strings are kept as `Decimal` and stored as `decimal128(28,10)`.
+- **Global refresh:** `RefreshService` adds `BrokerService.all_tickers()` (tickers held at the last SnapTrade refresh) to the tickers it refreshes. It never calls SnapTrade.
+- **Tests** use `tests/fake_snaptrade.py`, an httpx `MockTransport` that verifies each request's signature and credentials, so the real client code runs end to end without network access.
 
 ## Strategy engine
 
@@ -200,8 +204,8 @@ Signal state rules:
 
 **Boundaries.** A test checks these by parsing imports:
 
-- Strategy implementations (`strategies/base.py`, `models.py`, `<name>/*.py`) never import portfolios, positions, the API, FastAPI, yfinance, pyarrow, DuckDB or the persistence layer.
-- The engine never imports portfolios or positions. It only receives ticker symbols, and the caller decides where they come from.
+- Strategy implementations (`strategies/base.py`, `models.py`, `<name>/*.py`) never import portfolios, broker data, the API, FastAPI, yfinance, pyarrow, DuckDB or the persistence layer.
+- The engine never imports portfolios or broker data. It only receives ticker symbols, and the caller decides where they come from.
 
 ### Adding a strategy
 
@@ -290,12 +294,13 @@ App
 | `refresh/` | Global refresh: `useMarketRefresh`, and the strategy-pane tickers sent as `extra_tickers` |
 | `components/RefreshControl.tsx` | Refresh button, outcome, error details, last successful refresh time |
 | `panes/PortfolioPane.tsx` | Quotes for a portfolio; add/remove tickers, favourites |
-| `panes/positions/` | Positions pane, add/edit/close dialogs, decimal validation |
+| `panes/broker/` | Positions pane (one broker account, own refresh button), SnapTrade settings dialog |
+| `dashboard/actions.ts` | Context giving dialogs the dashboard's panes and `addPanes` (used to add a pane per account) |
 | `panes/strategy/` | Strategy pane, setup view, schema-driven settings form, ticker sources |
 
 ### Pane types
 
-The registry is the only place that knows the pane types. Adding a type means adding one registry entry with a component that receives `PaneProps {pane, onConfigChange}`, and optionally a `label(pane, {portfolios, strategies})` function for its automatic tab name (the pane title is used otherwise). The menus, grid, tabs and storage are generic.
+The registry is the only place that knows the pane types. Adding a type means adding one registry entry with a component that receives `PaneProps {pane, onConfigChange}`, and optionally a `label(pane, {portfolios, strategies, accounts})` function for its automatic tab name (the pane title is used otherwise). The menus, grid, tabs and storage are generic.
 
 ### Tabs
 
@@ -309,8 +314,9 @@ The registry is the only place that knows the pane types. Adding a type means ad
 ### Pane data and configuration
 
 - Each pane reads its configuration with checked helpers (`panes/config.ts`), because it comes from localStorage. Bad values fall back to defaults, and a portfolio that no longer exists shows a message instead of an error.
-- Pane configurations: Portfolio `{portfolioId}`, Positions `{portfolioId, showClosed}`, Strategy `{strategy, params, source}`, where `source` is `{kind: "portfolio" | "favourites", portfolioId}` or `{kind: "manual", tickers}`.
-- After any change (ticker added, position closed, portfolio renamed) the pane calls `notifyDataChanged()`, so other panes showing the same data reload. The global Refresh uses the same signal.
+- Pane configurations: Portfolio `{portfolioId}`, Positions `{accountId}`, Strategy `{strategy, params, source}`, where `source` is `{kind: "portfolio" | "favourites", portfolioId}`, `{kind: "account", accountId}` (the account's `tickers` at its last refresh) or `{kind: "manual", tickers}`.
+- The Positions pane kept its type id (`positions`), so existing layouts keep their pane; its old configuration (`portfolioId`, `showClosed`) is ignored and the first account is shown until one is chosen.
+- After any change (ticker added, broker account refreshed, portfolio renamed) the pane calls `notifyDataChanged()`, so other panes showing the same data reload. The global Refresh uses the same signal.
 - Reloads keep the last good data on screen; an error is shown above it with a Retry button.
 - Every pane body is wrapped in an error boundary, so a rendering failure in one pane does not affect the others.
 - All calculations stay in the backend. The frontend only formats numbers (percent values arrive in percent units) and colours gains green and losses red.

@@ -1,4 +1,4 @@
-import type { Portfolio, PositionView, QuoteRow, StrategySchema, TickerResult } from '../types/api'
+import type { BrokerAccountView, BrokerPositionView, Portfolio, QuoteRow, StrategySchema, TickerResult } from '../types/api'
 
 export const health = {
   status: 'ok',
@@ -42,34 +42,44 @@ export function quote(ticker: string, overrides: Partial<QuoteRow> = {}): QuoteR
   }
 }
 
-export function position(overrides: Partial<PositionView> = {}): PositionView {
+export function brokerAccount(overrides: Partial<BrokerAccountView> = {}): BrokerAccountView {
   return {
-    id: 'pos-1',
-    portfolio_id: 'pf-pos',
+    id: 'acc-1',
+    name: 'Brokerage',
+    number: '****1234',
+    status: 'open',
+    kind: 'investment',
+    net_value: 1100,
+    net_value_currency: 'USD',
+    listed_at: stamp,
+    positions_refreshed_at: stamp,
+    data_as_of: '2026-11-16T11:30:00Z',
+    tickers: ['AAPL'],
+    ...overrides,
+  }
+}
+
+export function brokerPosition(overrides: Partial<BrokerPositionView> = {}): BrokerPositionView {
+  return {
+    symbol: 'AAPL',
     ticker: 'AAPL',
+    description: 'Apple Inc',
+    kind: 'stock',
     currency: 'USD',
-    status: 'OPEN',
     quantity: 10,
-    entry_price: 100,
-    entry_date: '2026-01-02',
-    notes: '',
+    average_cost: 100,
     cost_basis: 1000,
     current_price: 110,
-    previous_close: 108,
+    price_source: 'market',
     price_timestamp: stamp,
+    previous_close: 108,
     market_value: 1100,
-    unrealised_pnl: 100,
-    unrealised_pnl_pct: 10,
     daily_change: 2,
     daily_change_pct: 1.85,
     daily_pnl: 20,
+    unrealised_pnl: 100,
+    unrealised_pnl_pct: 10,
     stale: false,
-    exit_price: null,
-    exit_date: null,
-    realised_pnl: null,
-    realised_pnl_pct: null,
-    created_at: stamp,
-    updated_at: stamp,
     ...overrides,
   }
 }

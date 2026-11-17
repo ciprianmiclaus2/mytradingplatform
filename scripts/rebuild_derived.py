@@ -7,7 +7,7 @@
     backend/.venv/bin/python scripts/rebuild_derived.py <name> ...
 
 Derived datasets are registered by the application modules that own them
-(positions from the transaction ledger, market history from close prices).
+(e.g. market history from close prices).
 """
 
 from __future__ import annotations

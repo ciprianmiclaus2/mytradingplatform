@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     backup_on_startup: bool = True
     persistence_lock_timeout: float = Field(default=10, gt=0)
 
+    snaptrade_base_url: str = "https://api.snaptrade.com"
+    snaptrade_timeout: float = Field(default=30, gt=0)
+
     # Origins allowed to call the API directly (the Vite dev server by default).
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 

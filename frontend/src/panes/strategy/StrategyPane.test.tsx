@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
-import { meanReversionSchema, portfolio, tickerResult } from '../../test/fixtures'
+import { brokerAccount, meanReversionSchema, portfolio, tickerResult } from '../../test/fixtures'
 import { apiError, mockApi, type MockRequest } from '../../test/mockApi'
 import { renderPane } from '../../test/renderPane'
 import { StrategyPane } from './StrategyPane'
@@ -144,6 +144,29 @@ describe('StrategyPane', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
     await screen.findByText('Insufficient data')
     expect(runs(api).at(-1)!.tickers).toEqual(['AAPL', 'NEW'])
+  })
+
+  it('uses a broker account’s holdings as the ticker source', async () => {
+    const accounts = { configured: true, accounts: [brokerAccount({ tickers: ['AAPL', 'NEW'] })], accounts_refreshed_at: null }
+    const api = setup({ 'GET /brokers/accounts': accounts })
+    renderPane(StrategyPane, { config: savedConfig })
+    await screen.findByText('Insufficient data')
+    await userEvent.click(screen.getByRole('button', { name: 'Settings' }))
+    await userEvent.click(screen.getByLabelText('Broker account'))
+    expect(screen.getByRole('combobox', { name: 'Source account' })).toHaveDisplayValue('Brokerage ****1234 (2 tickers)')
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(runs(api).at(-1)!.tickers).toEqual(['AAPL', 'NEW']))
+    expect(screen.getByText('Brokerage ****1234')).toBeInTheDocument() // the source description
+  })
+
+  it('offers broker accounts only when SnapTrade has some, and explains a missing account', async () => {
+    setup({ 'GET /brokers/accounts': { configured: false, accounts: [], accounts_refreshed_at: null } })
+    const { unmount } = renderPane(StrategyPane)
+    await screen.findByLabelText('Manual selection')
+    expect(screen.queryByLabelText('Broker account')).not.toBeInTheDocument()
+    unmount()
+    renderPane(StrategyPane, { config: { ...savedConfig, source: { kind: 'account', accountId: 'gone' } } })
+    expect(await screen.findByText(/broker account used by this strategy is not listed/)).toBeInTheDocument()
   })
 
   it('rejects invalid manual tickers', async () => {

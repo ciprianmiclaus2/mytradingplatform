@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react'
 import type { Pane } from '../dashboard/types'
-import type { Portfolio, StrategySchema } from '../types/api'
+import type { BrokerAccountView, Portfolio, StrategySchema } from '../types/api'
 
 export interface PaneProps {
   pane: Pane
@@ -28,4 +28,6 @@ export interface PaneDefinition {
 export interface LabelData {
   portfolios: Portfolio[] | undefined
   strategies: StrategySchema[] | undefined
+  /** Broker accounts as of the last SnapTrade refresh ([] when SnapTrade is not set up). */
+  accounts: BrokerAccountView[] | undefined
 }

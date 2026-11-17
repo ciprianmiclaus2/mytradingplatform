@@ -26,7 +26,7 @@ SAMPLE = DatasetSchema(
         ]
     ),
     key=("id",),
-    path=PurePosixPath("positions/sample.parquet"),
+    path=PurePosixPath("strategies/sample.parquet"),
 )
 
 SAMPLE_V2 = DatasetSchema(

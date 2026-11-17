@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.main import create_app
+from tests.fake_snaptrade import FakeSnapTrade
 from tests.fakes import FakeProvider
 
 _ENV_VARS = (
@@ -21,6 +22,8 @@ _ENV_VARS = (
     "BACKUP_RETENTION_COUNT",
     "CORS_ORIGINS",
     "LOG_LEVEL",
+    "SNAPTRADE_BASE_URL",
+    "SNAPTRADE_TIMEOUT",
 )
 
 
@@ -47,6 +50,12 @@ def fake_provider() -> FakeProvider:
 
 
 @pytest.fixture
-def client(settings: Settings, fake_provider: FakeProvider) -> Iterator[TestClient]:
-    with TestClient(create_app(settings, provider=fake_provider), raise_server_exceptions=False) as c:
+def fake_snaptrade() -> FakeSnapTrade:
+    return FakeSnapTrade()
+
+
+@pytest.fixture
+def client(settings: Settings, fake_provider: FakeProvider, fake_snaptrade: FakeSnapTrade) -> Iterator[TestClient]:
+    app = create_app(settings, provider=fake_provider, snaptrade=fake_snaptrade.factory)
+    with TestClient(app, raise_server_exceptions=False) as c:
         yield c

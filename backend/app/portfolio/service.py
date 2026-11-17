@@ -16,25 +16,17 @@ from app.portfolio.models import (
     PortfolioType,
     PortfolioUpdate,
     QuoteRow,
+    RETIRED_POSITIONS_TYPE,
 )
 from app.portfolio.repository import PortfolioRepository
 from app.schemas.errors import AppError, ConflictError, NotFoundError
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_PORTFOLIOS = (
-    ("Main Portfolio", PortfolioType.WATCHLIST),
-    ("Main Positions", PortfolioType.POSITIONS),
-)
+DEFAULT_PORTFOLIOS = (("Main Portfolio", PortfolioType.WATCHLIST),)
 
-# Returns the tickers of open positions for a positions portfolio (wired in Phase 5).
-PositionTickers = Callable[[str], list[str]]
 # Called (under the data lock) after a portfolio is deleted, to remove dependent data.
 PortfolioDeleted = Callable[[str], None]
-
-
-def _no_positions(_: str) -> list[str]:
-    return []
 
 
 def _utcnow() -> datetime:
@@ -54,7 +46,6 @@ class PortfolioService:
         self.market_data = market_data
         self.backups = backups
         self.clock = clock
-        self.position_tickers: PositionTickers = _no_positions
         self.on_deleted: list[PortfolioDeleted] = []
 
     # -- setup -----------------------------------------------------------------
@@ -73,13 +64,25 @@ class PortfolioService:
         logger.info("default portfolios created", extra={"portfolios": [p.name for p in created]})
         return created
 
+    def remove_legacy_positions_lists(self) -> list[str]:
+        """Remove manual positions lists (replaced by broker accounts). A backup is taken first."""
+        if not self.repo.exists():
+            return []
+        with self.repo.store.lock.hold():
+            if not self.repo.drop_type_needed(RETIRED_POSITIONS_TYPE):
+                return []
+            self.backups.create_backup("before-remove-positions-lists")
+            removed = self.repo.drop_type(RETIRED_POSITIONS_TYPE)
+        logger.warning("positions lists removed (replaced by broker accounts)", extra={"portfolios": removed})
+        return removed
+
     # -- queries ---------------------------------------------------------------
 
     def list(self, type: PortfolioType | None = None) -> list[Portfolio]:
-        return [self._view(p) for p in self.repo.load() if type is None or p.type == type]
+        return [p for p in self.repo.load() if type is None or p.type == type]
 
     def get(self, portfolio_id: str) -> Portfolio:
-        return self._view(_find(self.repo.load(), portfolio_id))
+        return _find(self.repo.load(), portfolio_id)
 
     def all_tickers(self) -> list[str]:
         """Unique tickers across every portfolio (for market data refresh)."""
@@ -194,7 +197,7 @@ class PortfolioService:
         return self.get(portfolio_id)
 
     def add_favourite(self, portfolio_id: str, ticker: str) -> Portfolio:
-        tickers = self.get(portfolio_id).tickers  # includes derived position tickers
+        tickers = self.get(portfolio_id).tickers
 
         def change(items: list[Portfolio]) -> list[Portfolio]:
             current = _find(items, portfolio_id)
@@ -220,7 +223,7 @@ class PortfolioService:
         return self.get(portfolio_id)
 
     def prune_favourites(self, portfolio_id: str) -> None:
-        """Drop favourites that are no longer tickers (e.g. after a position closes)."""
+        """Drop favourites that are no longer tickers."""
         valid = set(self.get(portfolio_id).tickers)
 
         def change(items: list[Portfolio]) -> list[Portfolio]:
@@ -231,14 +234,6 @@ class PortfolioService:
             return _replace(items, current.model_copy(update={"favourites": kept, "updated_at": self.clock()}))
 
         self.repo.modify(change)
-
-    # -- helpers --------------------------------------------------------------------------
-
-    def _view(self, portfolio: Portfolio) -> Portfolio:
-        """Apply derived tickers for positions portfolios."""
-        if portfolio.type is PortfolioType.POSITIONS:
-            return portfolio.model_copy(update={"tickers": self.position_tickers(portfolio.id)})
-        return portfolio
 
 
 def _new_id() -> str:
@@ -264,6 +259,4 @@ def _check_name_free(items: list[Portfolio], name: str, exclude: str | None = No
 
 def _require_watchlist(portfolio: Portfolio) -> None:
     if portfolio.type is not PortfolioType.WATCHLIST:
-        raise AppError(
-            f"{portfolio.name} is a positions portfolio; its tickers come from its positions"
-        )
+        raise AppError(f"{portfolio.name} is not a watchlist")

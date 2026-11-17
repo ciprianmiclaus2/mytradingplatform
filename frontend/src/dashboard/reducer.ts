@@ -1,12 +1,14 @@
 import { getPaneDefinition } from '../panes/registry'
 import { newGroupId, newPaneId } from '../utils/id'
-import { MINIMISED_HEIGHT } from './grid'
+import { GRID_COLS, MINIMISED_HEIGHT } from './grid'
 import type { DashboardState, Pane, PaneGroup, PaneLayout } from './types'
 
 export { GRID_COLS, MINIMISED_HEIGHT } from './grid'
 
 export type DashboardAction =
   | { type: 'addPane'; paneType: string; id?: string; groupId?: string }
+  /** Several panes of one type, each in its own tile, two tiles per row. */
+  | { type: 'addPanes'; paneType: string; configs: Record<string, unknown>[] }
   | { type: 'removePane'; id: string }
   | { type: 'layoutChange'; layouts: readonly PaneLayout[] }
   | { type: 'toggleMinimise'; id: string }
@@ -46,10 +48,21 @@ export function groupMinSize(state: DashboardState, group: PaneGroup): { w: numb
 }
 
 /** A new pane in its own tile, placed below everything else. */
-export function createPane(state: DashboardState, paneType: string, id = newPaneId(), groupId = newGroupId()): DashboardState {
+export function createPane(
+  state: DashboardState,
+  paneType: string,
+  id = newPaneId(),
+  groupId = newGroupId(),
+  config?: Record<string, unknown>,
+): DashboardState {
   const def = getPaneDefinition(paneType)
   if (!def) return state
-  const pane: Pane = { id, type: paneType, title: nextTitle(state.panes, def.title, paneType), config: def.defaultConfig() }
+  const pane: Pane = {
+    id,
+    type: paneType,
+    title: nextTitle(state.panes, def.title, paneType),
+    config: { ...def.defaultConfig(), ...config },
+  }
   const group: PaneGroup = { id: groupId, paneIds: [id], active: id }
   const layout: PaneLayout = { i: groupId, x: 0, y: bottom(state.layouts), w: def.defaultSize.w, h: def.defaultSize.h }
   return { ...state, panes: [...state.panes, pane], groups: [...state.groups, group], layouts: [...state.layouts, layout] }
@@ -86,6 +99,21 @@ export function dashboardReducer(state: DashboardState, action: DashboardAction)
   switch (action.type) {
     case 'addPane':
       return createPane(state, action.paneType, action.id, action.groupId)
+
+    case 'addPanes': {
+      const def = getPaneDefinition(action.paneType)
+      if (!def || action.configs.length === 0) return state
+      const top = bottom(state.layouts)
+      const perRow = Math.max(1, Math.floor(GRID_COLS / def.defaultSize.w))
+      let next = state
+      action.configs.forEach((config, index) => {
+        next = createPane(next, action.paneType, undefined, undefined, config)
+        const added = next.layouts[next.layouts.length - 1]
+        const placed = { ...added, x: (index % perRow) * def.defaultSize.w, y: top + Math.floor(index / perRow) * def.defaultSize.h }
+        next = { ...next, layouts: next.layouts.map((l) => (l === added ? placed : l)) }
+      })
+      return next
+    }
 
     case 'removePane': {
       if (!state.panes.some((p) => p.id === action.id)) return state

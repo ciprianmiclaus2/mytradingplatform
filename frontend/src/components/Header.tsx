@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import type { DashboardApi } from '../dashboard/useDashboard'
 import type { BackendHealthState } from '../hooks/useBackendHealth'
+import { SnapTradeSettingsDialog } from '../panes/broker/SnapTradeSettingsDialog'
 import { paneDefinitions } from '../panes/registry'
 import { dashboardExtraTickers } from '../refresh/dashboardTickers'
 import { useMarketRefresh } from '../refresh/useMarketRefresh'
@@ -17,6 +18,7 @@ interface Props {
 
 export function Header({ dashboard, health, onRetryHealth }: Props) {
   const [confirmReset, setConfirmReset] = useState(false)
+  const [snapTradeOpen, setSnapTradeOpen] = useState(false)
   const { state } = dashboard
   const getExtraTickers = useCallback(() => dashboardExtraTickers(state), [state])
   const refresh = useMarketRefresh(getExtraTickers)
@@ -27,6 +29,12 @@ export function Header({ dashboard, health, onRetryHealth }: Props) {
       <Menu
         label="Menu"
         items={[
+          {
+            key: 'snaptrade',
+            label: 'SnapTrade settings…',
+            description: 'Connect broker accounts; add a positions pane per account',
+            onSelect: () => setSnapTradeOpen(true),
+          },
           {
             key: 'reset',
             label: 'Reset layout',
@@ -48,6 +56,7 @@ export function Header({ dashboard, health, onRetryHealth }: Props) {
       <div className="ml-auto">
         <BackendStatus state={health} onRetry={onRetryHealth} />
       </div>
+      {snapTradeOpen && <SnapTradeSettingsDialog onClose={() => setSnapTradeOpen(false)} />}
       {confirmReset && (
         <ConfirmDialog
           title="Reset layout?"

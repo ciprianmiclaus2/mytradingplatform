@@ -22,7 +22,7 @@ DATA_SUBDIRECTORIES: tuple[Path, ...] = (
     Path("market_data/current"),
     Path("market_data/history"),
     Path("portfolios"),
-    Path("positions"),
+    Path("brokers"),
     Path("strategies"),
     Path("backups"),
     Path("metadata"),

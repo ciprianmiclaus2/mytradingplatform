@@ -50,31 +50,29 @@ def watchlist(service: PortfolioService, name: str = "Tech") -> str:
 
 
 def test_defaults_created_on_first_startup_only(service: PortfolioService) -> None:
-    assert [(p.name, p.type) for p in service.list()] == [
-        ("Main Portfolio", PortfolioType.WATCHLIST),
-        ("Main Positions", PortfolioType.POSITIONS),
-    ]
+    assert [(p.name, p.type) for p in service.list()] == [("Main Portfolio", PortfolioType.WATCHLIST)]
     assert service.ensure_defaults() == []  # second startup
+    watchlist(service)
     main = service.list(PortfolioType.WATCHLIST)[0]
     service.delete(main.id)
     assert service.ensure_defaults() == []  # not recreated after a deliberate delete
-    assert len(service.list()) == 1
+    assert [p.name for p in service.list()] == ["Tech"]
 
 
 def test_list_filters_by_type(service: PortfolioService) -> None:
     watchlist(service)
     assert [p.name for p in service.list(PortfolioType.WATCHLIST)] == ["Main Portfolio", "Tech"]
-    assert [p.name for p in service.list(PortfolioType.POSITIONS)] == ["Main Positions"]
+    assert [p.name for p in service.list()] == ["Main Portfolio", "Tech"]
 
 
 # -- create / update / delete ----------------------------------------------------------------
 
 
 def test_create_and_get(service: PortfolioService) -> None:
-    p = service.create(PortfolioCreate(name="  Long   term ", description="Buy and hold", type="positions"))
+    p = service.create(PortfolioCreate(name="  Long   term ", description="Buy and hold"))
     got = service.get(p.id)
     assert got.name == "Long term" and got.description == "Buy and hold"
-    assert got.type is PortfolioType.POSITIONS and got.tickers == [] and got.favourites == []
+    assert got.type is PortfolioType.WATCHLIST and got.tickers == [] and got.favourites == []
     assert got.created_at == FIXED_NOW
 
 
@@ -96,7 +94,7 @@ def test_update_name_and_description(service: PortfolioService) -> None:
     assert (updated.name, updated.description) == ("Technology", "d")
     assert service.update(pid, PortfolioUpdate(name="technology")).name == "technology"  # own name, new case
     with pytest.raises(ConflictError):
-        service.update(pid, PortfolioUpdate(name="Main Positions"))
+        service.update(pid, PortfolioUpdate(name="Main Portfolio"))
     with pytest.raises(NotFoundError):
         service.update("nope", PortfolioUpdate(name="x"))
 
@@ -120,7 +118,8 @@ def test_delete_takes_backup_and_runs_hooks(service: PortfolioService, backups: 
 
 
 def test_last_portfolio_cannot_be_deleted(service: PortfolioService) -> None:
-    first, second = service.list()
+    first = service.list()[0]
+    second = service.get(watchlist(service))
     service.delete(first.id)
     with pytest.raises(ConflictError, match="last remaining"):
         service.delete(second.id)
@@ -195,25 +194,23 @@ def test_remove_ticker_also_removes_favourite(service: PortfolioService) -> None
         service.remove_ticker(pid, "AAPL")
 
 
-def test_positions_portfolio_tickers_are_read_only(service: PortfolioService) -> None:
-    positions = service.list(PortfolioType.POSITIONS)[0]
-    with pytest.raises(AppError, match="positions portfolio"):
-        service.add_ticker(positions.id, "AAPL")
-    with pytest.raises(AppError, match="positions portfolio"):
-        service.remove_ticker(positions.id, "AAPL")
+def test_legacy_positions_lists_are_removed_once_with_a_backup(service: PortfolioService) -> None:
+    import pyarrow as pa
 
+    from app.portfolio.repository import PORTFOLIOS
 
-def test_positions_portfolio_tickers_come_from_positions(service: PortfolioService) -> None:
-    positions = service.list(PortfolioType.POSITIONS)[0]
-    service.position_tickers = lambda pid: ["NVDA"] if pid == positions.id else []
-    assert service.get(positions.id).tickers == ["NVDA"]
-    service.add_favourite(positions.id, "NVDA")
-    assert service.get(positions.id).favourites == ["NVDA"]
-    assert "NVDA" in service.all_tickers()
+    assert service.remove_legacy_positions_lists() == []  # nothing to remove: no backup
+    store = service.repo.store
+    row = {"id": "old", "name": "Main Positions", "description": "", "type": "positions", "tickers": [],
+           "favourites": [], "created_at": FIXED_NOW, "updated_at": FIXED_NOW}
+    store.update(PORTFOLIOS, lambda t: pa.concat_tables([t, pa.Table.from_pylist([row], schema=PORTFOLIOS.schema)]))
+    reasons: list[str] = []
+    service.backups.create_backup = lambda reason: reasons.append(reason)  # type: ignore[method-assign]
 
-    service.position_tickers = lambda pid: []  # position closed
-    service.prune_favourites(positions.id)
-    assert service.get(positions.id).favourites == []
+    assert service.remove_legacy_positions_lists() == ["Main Positions"]
+    assert reasons == ["before-remove-positions-lists"]
+    assert [p.name for p in service.list()] == ["Main Portfolio"]
+    assert service.remove_legacy_positions_lists() == [] and reasons == ["before-remove-positions-lists"]
 
 
 # -- favourites --------------------------------------------------------------------------------

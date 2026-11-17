@@ -48,7 +48,7 @@ def update_portfolio(service: Portfolios, portfolio_id: str, body: PortfolioUpda
 
 @router.delete("/{portfolio_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_portfolio(service: Portfolios, portfolio_id: str) -> Response:
-    """Delete a portfolio (and, for positions portfolios, its positions). A backup is taken first."""
+    """Delete a portfolio. A backup is taken first."""
     service.delete(portfolio_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

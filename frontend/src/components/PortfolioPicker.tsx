@@ -7,8 +7,8 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { DialogButtons, FormError, Modal, inputClass } from './Modal'
 import { Menu } from './Menu'
 
-const TYPE_LABEL: Record<PortfolioType, string> = { watchlist: 'Watchlist', positions: 'Positions' }
-const NEW_LABEL: Record<PortfolioType, string> = { watchlist: 'watchlist', positions: 'positions list' }
+const TYPE_LABEL: Record<PortfolioType, string> = { watchlist: 'Watchlist' }
+const NEW_LABEL: Record<PortfolioType, string> = { watchlist: 'watchlist' }
 
 interface Props {
   portfolios: Portfolio[]
@@ -109,11 +109,7 @@ export function PortfolioPicker({ portfolios, value, onChange, types, label = 'P
       {dialog?.kind === 'delete' && current && (
         <ConfirmDialog
           title="Delete portfolio?"
-          message={
-            current.type === 'positions'
-              ? `“${current.name}” and all its open and closed positions will be deleted. A backup is taken first.`
-              : `“${current.name}” and its tickers will be deleted. A backup is taken first.`
-          }
+          message={`“${current.name}” and its tickers will be deleted. A backup is taken first.`}
           confirmLabel="Delete"
           onConfirm={remove}
           onCancel={() => setDialog(null)}

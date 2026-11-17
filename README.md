@@ -1,6 +1,6 @@
 # My Trading Platform
 
-A locally hosted, single-user signal-generation dashboard. It monitors watchlists of ticker symbols, displays held positions with their P&L, and runs configurable strategies such as mean reversion. All data is stored in local Parquet files. It never places real trades and does no accounting.
+A locally hosted, single-user signal-generation dashboard. It monitors watchlists of ticker symbols, shows the positions held in your brokerage accounts (pulled read-only through [SnapTrade](https://snaptrade.com)) with their P&L, and runs configurable strategies such as mean reversion. All data is stored in local Parquet files. It never places real trades and does no accounting.
 
 > **Status:** Version 1 is complete (Phases 1–11). See
 > [docs/MyTradingPlatform_v1_ImplementationPlan.md](docs/MyTradingPlatform_v1_ImplementationPlan.md)
@@ -14,7 +14,7 @@ Browser (React + Vite, :5173)
    ▼
 FastAPI backend (:8000)
    ├── api/           HTTP routes only, no business logic
-   ├── services       portfolio, positions, market data, strategies
+   ├── services       portfolio, brokers (SnapTrade), market data, strategies
    └── persistence/   Parquet files + DuckDB queries (DATA_DIR)
 ```
 
@@ -98,23 +98,40 @@ The header of the web page shows "Backend connected" when the frontend can reach
 The dashboard is a grid of tiles. Each tile holds one or more panes as tabs.
 
 - **Add pane** adds a Portfolio, Positions or Strategy pane in a new tile. You can have several of the same type.
-- **Tabs** are named automatically from each pane's settings, for example "Main Portfolio", "Positions · IBKR" or "RSI · Tech favourites". Identical names within a tile are numbered.
+- **Tabs** are named automatically from each pane's settings, for example "Main Portfolio", "Positions · Brokerage ****1234" or "RSI · Tech favourites". Identical names within a tile are numbered.
 - **Group panes as tabs:** open a tab's **⋯** menu and choose **Move … to:** another tile. **Detach** puts a tab back in its own tile. Drag a tab sideways within its tab bar to reorder it; click a tab, or use the arrow keys, to switch.
 - **Move** a tile by dragging its grip (⠿) or the empty part of its header. **Resize** it from its bottom-right corner.
 - **–** minimises a tile to its header. **×** on a tab removes that pane, after you confirm.
+- **Menu → SnapTrade settings…** connects your broker accounts (see below).
 - **Menu → Reset layout** restores the default panes.
 
 Panes in hidden tabs keep working: a Refresh updates them and their strategies recalculate, so signal history stays complete.
 
-**Refresh:** the **↻ Refresh** button in the header fetches the latest price of every ticker the dashboard uses, once each: every portfolio's tickers, open positions, and tickers typed into strategy panes. All panes then reload and strategies recalculate. Next to the button you see the outcome (for example "1 of 12 tickers failed", with **details**) and the time of the last successful refresh. A ticker that fails keeps its last valid price, marked ⚠. Prices are only fetched when you press Refresh (and when a ticker is first added).
+**Refresh:** the **↻ Refresh** button in the header fetches the latest price of every ticker the dashboard uses, once each: every portfolio's tickers, the tickers held in your broker accounts, and tickers typed into strategy panes. All panes then reload and strategies recalculate. Next to the button you see the outcome (for example "1 of 12 tickers failed", with **details**) and the time of the last successful refresh. A ticker that fails keeps its last valid price, marked ⚠. Prices are only fetched when you press Refresh (and when a ticker is first added). This Refresh does not contact SnapTrade; each Positions pane has its own refresh button for that.
 
 **Panes:**
 
 - **Portfolio:** prices, daily change and daily change % for any portfolio. Use **⋯** to create, rename or delete portfolios. For a watchlist, type a symbol or company name in **Add ticker…** and pick a suggestion or press Enter; **★** marks favourites, and **×** removes a ticker. ⚠ marks a price whose last refresh failed (the last known price is shown).
-- **Positions:** open positions with market value, daily P&L and unrealised P&L, with one totals row per currency. **+ Add position**, **Edit**, **Close** and **Delete** manage them. The entry and exit prices default to the latest market price. Tick **Show closed** to see closed positions and realised P&L.
-- **Strategy:** choose a strategy (Bollinger Bands, MACD, Mean Reversion, Moving Average Crossover or RSI), its settings (the form is built from the strategy's own parameter list), and its tickers: a portfolio, a portfolio's favourites, or a typed list. The pane shows the strategy's metrics and the BUY (green) or SELL (red) signal per ticker; **Settings** changes the configuration, **↻** recalculates, and **About** explains how the strategy works and how to read it (also available as "How this strategy works" while choosing). Tickers without enough history show a status rather than numbers.
+- **Positions:** the positions of one broker account, pulled through SnapTrade: quantity, average cost, price, market value, daily P&L and unrealised P&L, with one totals row per currency. Choose the account at the top. **↻ Refresh** fetches that account's positions from SnapTrade (the account list is fetched first); the pane shows when it was last refreshed and how old SnapTrade's data from the broker is. Prices come from the dashboard's market data where a holding maps to a ticker (London holdings are converted from pence); otherwise, for example for options, the broker's price at the last refresh is used, marked ⓑ.
+- **Strategy:** choose a strategy (Bollinger Bands, MACD, Mean Reversion, Moving Average Crossover or RSI), its settings (the form is built from the strategy's own parameter list), and its tickers: a portfolio, a portfolio's favourites, a broker account's holdings, or a typed list. The pane shows the strategy's metrics and the BUY (green) or SELL (red) signal per ticker; **Settings** changes the configuration, **↻** recalculates, and **About** explains how the strategy works and how to read it (also available as "How this strategy works" while choosing). Tickers without enough history show a status rather than numbers.
 
-Click a column header to sort; click again to reverse. Each pane's settings (selected portfolio, show closed, strategy configuration) are saved with the layout.
+Click a column header to sort; click again to reverse. Each pane's settings (selected portfolio or account, strategy configuration) are saved with the layout.
+
+### Broker accounts (SnapTrade)
+
+Positions come from your brokerage accounts through SnapTrade, read-only: the app never places or changes orders.
+
+1. At [dashboard.snaptrade.com](https://dashboard.snaptrade.com), turn on two-factor authentication, then create a **Personal API key** on the API Key page (free, for your own accounts). Copy the **Client ID** and **Consumer key** straight away. Connect your brokerages in the SnapTrade dashboard.
+2. In the app, open **Menu → SnapTrade settings…** (or **Set up SnapTrade…** in a Positions pane) and enter the **Client ID** and **Consumer key**. Leave **User ID** and **User secret** empty: a Personal key identifies you by itself.
+   - With a **Commercial** key, also enter the User ID and User secret of the user you registered through the SnapTrade API (`registerUser`). They go together: both or neither.
+3. **Connect** checks them with SnapTrade, saves them, lists your accounts and loads each account's positions. Nothing is saved if SnapTrade rejects them.
+4. **Add a pane for each account** adds one Positions pane per account that doesn't have one yet. Each pane has its own **↻ Refresh**.
+
+The credentials are stored on this computer in `$DATA_DIR/config/snaptrade.json`, readable only by your user (file mode 0600). The API never returns them; the settings dialog shows only their last four characters. They are not included in backups. **Disconnect…** deletes them and the cached accounts and positions; it doesn't change anything at SnapTrade.
+
+With a Personal key, SnapTrade fetches holdings from the broker when they are requested (its Daily plan, for Commercial keys, updates about once a day); "Broker data as of" in the pane shows the time of SnapTrade's data. SnapTrade also limits how often an account can be queried; if you refresh too often, the pane shows when to try again.
+
+Earlier versions had manually entered positions lists. These have been replaced by broker accounts: any old positions list is removed on startup, after a backup is taken.
 
 The layout is saved automatically in your browser's `localStorage`, under the key `my-trading-platform-layout`, and is restored when you reopen the page. A saved layout that can't be read is replaced by the default layout, and a notice tells you so.
 
@@ -136,6 +153,8 @@ The backend reads its settings from environment variables, or from an optional `
 | `BACKUP_RETENTION_COUNT` | `10` | Number of backups kept |
 | `BACKUP_ON_STARTUP` | `true` | Back up application state on startup (skipped if nothing changed since the last backup) |
 | `PERSISTENCE_LOCK_TIMEOUT` | `10` | Seconds to wait for the data write lock |
+| `SNAPTRADE_BASE_URL` | `https://api.snaptrade.com` | SnapTrade API address |
+| `SNAPTRADE_TIMEOUT` | `30` | Seconds to wait for each SnapTrade request |
 | `CORS_ORIGINS` | the Vite dev origins | JSON list of allowed browser origins |
 | `LOG_LEVEL` | `INFO` | Log level. Logs are written to stderr as JSON lines. `DEBUG` adds every file write and full provider error text |
 
@@ -161,9 +180,13 @@ $DATA_DIR/
 │   ├── history/             history.parquet: rebuildable consolidated view
 │   └── refresh_status.json  last refresh result and per-ticker refresh state
 ├── portfolios/
-│   └── portfolios.parquet   watchlists and positions portfolios
-├── positions/
-│   └── positions.parquet    open and closed positions
+│   └── portfolios.parquet   watchlists
+├── brokers/                 cache of the last SnapTrade refresh (rebuilt by refreshing)
+│   ├── accounts.parquet     accounts, with their last refresh times
+│   ├── positions.parquet    positions per account
+│   └── status.json          time the account list was last fetched
+├── config/                  owner-only (0700), never backed up
+│   └── snaptrade.json       SnapTrade credentials (0600)
 ├── strategies/
 │   └── signals.parquet      recorded signal transitions
 ├── backups/
@@ -198,7 +221,7 @@ backend/.venv/bin/python scripts/rebuild_derived.py              # rebuild every
 backend/.venv/bin/python scripts/rebuild_history.py              # rebuild market_data/history/history.parquet
 ```
 
-A backup is a timestamped folder under `backups/` with a checksum manifest. It covers portfolios, positions, strategies and metadata, but not market data, which can be downloaded again. Restoring always backs up the current state first.
+A backup is a timestamped folder under `backups/` with a checksum manifest. It covers portfolios, strategies and metadata, but not market data or the broker cache, which can be downloaded again, and never the SnapTrade credentials. Restoring always backs up the current state first.
 
 The data directory is never served over HTTP.
 
@@ -211,7 +234,7 @@ cd frontend && npm run build       # type-check + production build
 cd frontend && npm run lint
 ```
 
-Automated tests never call Yahoo Finance. The market data tests use a fake in-memory provider (`tests/fakes.py`) and stubbed yfinance objects.
+Automated tests never call Yahoo Finance or SnapTrade. The market data tests use a fake in-memory provider (`tests/fakes.py`) and stubbed yfinance objects; the broker tests use a fake SnapTrade API (`tests/fake_snaptrade.py`) that checks every request's signature.
 
 What the suites cover:
 
@@ -224,8 +247,8 @@ What the suites cover:
 **Manual acceptance check** (after changes that affect the UI). Run `./start.sh` with a scratch data folder (`DATA_DIR=/tmp/mtp-check ./start.sh`), then:
 
 1. Add tickers and mark favourites, and press **Refresh**.
-2. Add positions in two currencies, close one, and tick **Show closed**.
-3. Add a Strategy pane on the positions list, change the lookback, and press **Refresh**.
+2. Connect SnapTrade (**Menu → SnapTrade settings…**), add a pane for each account, and press **↻ Refresh** in one of them.
+3. Add a Strategy pane on a broker account, change the lookback, and press **Refresh**.
 4. Move and resize panes, stop `start.sh`, close the browser, start again, and reopen. Layout, settings and data should all be unchanged.
 
 ## Troubleshooting
@@ -238,6 +261,9 @@ What the suites cover:
 | API returns `persistence_lock_timeout` | A maintenance script is holding the write lock. Wait for it to finish |
 | Prices show as stale | The last refresh failed for that ticker. The last valid price stays on screen; see `GET /api/market-data/status` |
 | Ticker search returns 502 | Yahoo Finance is unreachable or rate-limiting. Try again later |
+| SnapTrade setup says "rejected the request" | A value is wrong. "Unable to verify signature" points to the Client ID or Consumer key; "Invalid userID or userSecret" to the User ID or User secret (leave both empty for a Personal API key) |
+| A Positions pane says "rate limit reached" | SnapTrade limits how often an account can be queried. Wait the time shown, then refresh again |
+| A broker holding shows ⓑ instead of a live price | It couldn't be matched to a market data ticker (e.g. options, or an exchange the app doesn't know), so the broker's price at the last refresh is shown |
 | Backend exits with "Cannot create data directory" | `DATA_DIR` isn't writable, or part of its path is a file |
 | Browser shows a CORS error when `VITE_API_BASE_URL` is an absolute URL | Add the frontend origin to `CORS_ORIGINS` |
 | `start.sh` says "Backend did not become healthy" but the backend log shows it started | Fixed in V1: the health check now ignores `http_proxy`/`https_proxy`. If you call the API with your own tools behind a proxy, add `127.0.0.1` to `no_proxy` |

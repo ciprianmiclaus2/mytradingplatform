@@ -3,19 +3,22 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import { STORAGE_KEY } from './dashboard/storage'
-import { health, meanReversionSchema, portfolio, quote, tickerResult } from './test/fixtures'
+import { brokerAccount, health, meanReversionSchema, portfolio, quote, tickerResult } from './test/fixtures'
 import { apiError, mockApi, type MockRequest } from './test/mockApi'
 
 const watchlist = portfolio({ tickers: ['AAPL', 'MSFT'], favourites: ['MSFT'] })
-const positionsList = portfolio({ id: 'pf-pos', name: 'Main Positions', type: 'positions' })
+const account = brokerAccount()
+const tech = portfolio({ id: 'pf-two', name: 'Tech', tickers: [] })
 
 const healthy = () =>
   mockApi({
     'GET /health': health,
     'GET /market-data/status': { provider: 'fake', last_refresh: null, last_successful_refresh_at: null },
-    'GET /portfolios': [watchlist, positionsList],
+    'GET /portfolios': [watchlist, tech],
+    'GET /portfolios/pf-two/quotes': { portfolio_id: 'pf-two', rows: [] },
     'GET /portfolios/pf-main/quotes': { portfolio_id: 'pf-main', rows: [quote('AAPL', { price: 190.5 }), quote('MSFT', { favourite: true })] },
-    'GET /portfolios/pf-pos/positions': { portfolio_id: 'pf-pos', positions: [], totals: [] },
+    'GET /brokers/accounts': { configured: true, accounts: [account], accounts_refreshed_at: health.server_time },
+    'GET /brokers/accounts/acc-1/positions': { account, positions: [], totals: [] },
     'GET /strategies': [meanReversionSchema],
     'POST /strategies/mean_reversion/run': (req: MockRequest) => {
       const body = req.body as { tickers: string[]; config: object; instance_id?: string }
@@ -24,7 +27,7 @@ const healthy = () =>
   })
 
 const PORTFOLIO = 'Main Portfolio'
-const POSITIONS = 'Positions · Main Positions'
+const POSITIONS = 'Positions · Brokerage ****1234'
 /** Labels of all tabs, in tile order (automatic names once data has loaded). */
 const tabLabels = () => screen.queryAllByRole('tab').map((t) => t.textContent)
 const expectTabs = (labels: string[]) => waitFor(() => expect(tabLabels()).toEqual(labels))
@@ -172,7 +175,7 @@ describe('App', () => {
   it('shows real data in the default panes', async () => {
     render(<App />)
     expect(await screen.findByText('190.50')).toBeInTheDocument()
-    expect(await screen.findByText('No open positions.')).toBeInTheDocument()
+    expect(await screen.findByText('No positions in this account.')).toBeInTheDocument()
   })
 
   it('keeps several strategy panes with different configurations across a refresh', async () => {
@@ -212,12 +215,12 @@ describe('App', () => {
     const first = render(<App />)
     await screen.findByText('190.50')
     const picker = within(panel(PORTFOLIO)).getByRole('combobox', { name: 'Portfolio' })
-    await userEvent.selectOptions(picker, 'pf-pos')
-    await expectTabs(['Main Positions', POSITIONS]) // the tab name follows the selection
+    await userEvent.selectOptions(picker, 'pf-two')
+    await expectTabs(['Tech', POSITIONS]) // the tab name follows the selection
     first.unmount()
     render(<App />)
-    await expectTabs(['Main Positions', POSITIONS])
-    expect(within(panel('Main Positions')).getByRole('combobox', { name: 'Portfolio' })).toHaveValue('pf-pos')
+    await expectTabs(['Tech', POSITIONS])
+    expect(within(panel('Tech')).getByRole('combobox', { name: 'Portfolio' })).toHaveValue('pf-two')
   })
 
   it('minimises and restores a pane', async () => {

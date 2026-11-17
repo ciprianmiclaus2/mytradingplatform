@@ -29,7 +29,7 @@ These endpoints never fabricate prices. A ticker with no cached price is listed 
 | `/api/market-data/search?q=&limit=` | GET | Ticker search, normalised. Futures and options are excluded. Returns 502 if the provider is unavailable |
 | `/api/market-data/prices?tickers=AAPL,MSFT` | GET | Latest cached prices. Never calls the provider |
 | `/api/market-data/history?ticker=&start=&end=` | GET | Completed daily closes. Missing ranges are fetched once and then served from cache |
-| `/api/market-data/refresh` | POST | Global refresh: every portfolio's tickers (open positions for positions lists) plus `extra_tickers`, once per unique ticker. Body (optional): `{"extra_tickers": [...]}`, at most 200. Returns 409 `refresh_in_progress` if a refresh is already running |
+| `/api/market-data/refresh` | POST | Global refresh: every portfolio's tickers, the tickers held in broker accounts (as of their last SnapTrade refresh) plus `extra_tickers`, once per unique ticker. Does not call SnapTrade. Body (optional): `{"extra_tickers": [...]}`, at most 200. Returns 409 `refresh_in_progress` if a refresh is already running |
 | `/api/market-data/status` | GET | Provider, last refresh result, last successful refresh time |
 
 ### Latest price
@@ -75,10 +75,10 @@ The dashboard sends the tickers of strategy panes that use a typed ticker list a
 
 ## Portfolios
 
-A portfolio is a named watchlist of type `watchlist` or `positions`.
+A portfolio is a named watchlist (type `watchlist`, the only type).
 
-- On first startup, "Main Portfolio" (watchlist) and "Main Positions" are created.
-- A `positions` portfolio's `tickers` are the tickers of its open positions and are read-only.
+- On first startup, "Main Portfolio" is created.
+- Positions lists (type `positions`) were replaced by broker accounts. Old ones are removed on startup, after a backup is taken; creating one returns 422.
 
 | Endpoint | Method | Purpose |
 |---|---|---|
@@ -105,7 +105,6 @@ Adding a ticker checks it against market data:
 | `422 invalid_ticker` | The provider has no data for the ticker |
 | `502 market_data_provider_unavailable` | The provider is unreachable and no price is cached. Try again |
 | `409 conflict` | The ticker is already in the portfolio |
-| `400` | The portfolio is a positions portfolio |
 
 ### Errors
 
@@ -127,71 +126,68 @@ Other errors:
  "delayed": true, "stale": false, "last_error": null}
 ```
 
-## Positions
+## Broker accounts (SnapTrade)
 
-Positions are informational records. There is no ledger and no cash. Each one belongs to a `positions` portfolio.
+Positions come from brokerage accounts through SnapTrade, read-only. The backend calls SnapTrade only for the settings and refresh endpoints; everything else reads the cache of the last refresh (`brokers/` in the data folder).
 
 | Endpoint | Method | Purpose |
 |---|---|---|
-| `/api/portfolios/{id}/positions?status=all\|open\|closed` | GET | Positions with calculated metrics, plus per-currency `totals`. The filter defaults to `all`; totals always cover the whole portfolio |
-| `/api/portfolios/{id}/positions` | POST | Create position. Returns 201 |
-| `/api/positions/{id}` | GET | Retrieve position |
-| `/api/positions/{id}` | PUT | Edit in place. Only the fields sent are changed |
-| `/api/positions/{id}/close` | POST | Close the whole position: `{"exit_price"?, "exit_date"?}`. The body is optional |
-| `/api/positions/{id}` | DELETE | Delete an open or closed position, after taking a backup. Returns 204 |
+| `/api/brokers/snaptrade/settings` | GET | Whether SnapTrade is set up: `{configured, personal, client_id, user_id, consumer_key_hint, user_secret_hint}`. `personal` is `true` for a Personal API key (no user). Secrets are never returned, only their last 4 characters (empty for values of 8 characters or fewer) |
+| `/api/brokers/snaptrade/settings` | PUT | `{"client_id", "consumer_key", "user_id"?, "user_secret"?}`. Personal API key: leave the user fields out (or blank); requests then carry no user. Commercial key: both user fields; one without the other is `422`. Lists the accounts with these credentials; if SnapTrade accepts them, saves them, replaces the cache and loads every account's positions. Returns a refresh result. `422 snaptrade_credentials_rejected` (nothing saved) if SnapTrade rejects them |
+| `/api/brokers/snaptrade/settings` | DELETE | Delete the credentials and the cached accounts and positions. Returns 204. Nothing changes at SnapTrade |
+| `/api/brokers/accounts` | GET | `{configured, accounts, accounts_refreshed_at}` from the cache. Each account includes `tickers`: the market data tickers it held at its last refresh |
+| `/api/brokers/refresh` | POST | List the accounts (`GET /accounts/all` at SnapTrade), then fetch each account's positions (`GET /accounts/{id}/positions/all`). An account whose positions fail keeps its previous positions and is listed in `errors` |
+| `/api/brokers/accounts/{id}/positions` | GET | The account's positions from the cache, valued with the latest market prices, plus per-currency `totals` |
+| `/api/brokers/accounts/{id}/refresh` | POST | The pane's refresh: list the accounts, then fetch this account's positions. Returns the same body as the GET |
 
-### Creating a position
+### Errors
 
-Request body: `{"ticker", "quantity", "entry_price"?, "entry_date"?, "notes"?}`.
+| Response | Meaning |
+|---|---|
+| `409 snaptrade_not_configured` | SnapTrade is not set up |
+| `409 broker_refresh_in_progress` | Another SnapTrade refresh or settings change is running |
+| `422 snaptrade_credentials_rejected` | Setup only: SnapTrade rejected the credentials |
+| `502 snaptrade_auth_failed` | SnapTrade rejected the stored credentials (e.g. a deleted user or rotated key) |
+| `429 snaptrade_rate_limited` | SnapTrade's rate limit; the message says when to try again (from `Retry-After`) |
+| `502 snaptrade_error` | SnapTrade unreachable, timed out, returned an error, or the brokerage connection is disabled (reconnect it at SnapTrade) |
+| `404 not_found` | The account is not (or no longer) listed |
 
-- **Ticker:** checked like a watchlist ticker. An unknown ticker gets `422 invalid_ticker`; if the provider is down and no price is stored, the response is `502`.
-- **Currency:** taken from the quote, and never converted. Prices are in the quote's units, e.g. pence for `GBp`.
-- **Defaults:** `entry_price` defaults to the latest available price, and `entry_date` to today (UTC).
-- **One open position per ticker:** a second open position for the same ticker in the same portfolio gets `409`. Edit the quantity and entry price instead. Once a position is closed, its ticker can be opened again.
+Accounts that SnapTrade no longer lists are removed from the cache, with their positions, at the next refresh.
 
-### Numbers and dates
+### Account
 
-- **Numbers:** `quantity` and prices must be greater than 0, with at most 8 decimal places and 12 integer digits. They can be sent as JSON numbers or as strings.
-- **Dates:** can't be in the future, and `exit_date` can't be before `entry_date`.
+```json
+{"id": "917c8734-...", "name": "Brokerage", "number": "****1234", "status": "open", "kind": "investment",
+ "net_value": 15363.23, "net_value_currency": "USD", "listed_at": "...",
+ "positions_refreshed_at": "2026-11-16T15:00:00Z", "data_as_of": "2026-11-16T14:30:00Z", "tickers": ["AAPL", "VOD.L"]}
+```
 
-### Editing a position
-
-- **Open positions:** `quantity`, `entry_price`, `entry_date` (send `null` to clear it) and `notes`.
-- **Closed positions:** `exit_price`, `exit_date` and `notes`.
-- Changing any other field returns `400`.
-
-### Closing a position
-
-- `exit_price` defaults to the latest available price. If there's none, the response is `400`, asking for one.
-- `exit_date` defaults to today (UTC).
-- Closing an already closed position returns `409`.
-- Closing or deleting a position also removes its ticker from the portfolio's favourites.
+`positions_refreshed_at` is when this app last fetched the positions; `data_as_of` is SnapTrade's `data_freshness.as_of`, the time SnapTrade fetched them from the broker.
 
 ### Position (response)
 
-All values are calculated in the backend.
+All values are calculated in the backend, with decimal arithmetic.
 
 ```json
-{"id": "...", "portfolio_id": "...", "ticker": "AAPL", "currency": "USD", "status": "OPEN",
- "quantity": 20, "entry_price": 210, "entry_date": "2026-01-05", "notes": "", "cost_basis": 4200,
- "current_price": 215.42, "previous_close": 218.10, "price_timestamp": "...",
- "market_value": 4308.4, "unrealised_pnl": 108.4, "unrealised_pnl_pct": 2.58,
- "daily_change": -2.68, "daily_change_pct": -1.23, "daily_pnl": -53.6, "stale": false,
- "exit_price": null, "exit_date": null, "realised_pnl": null, "realised_pnl_pct": null,
- "created_at": "...", "updated_at": "..."}
+{"symbol": "AAPL", "ticker": "AAPL", "description": "Apple Inc", "kind": "stock", "currency": "USD",
+ "quantity": 10, "average_cost": 90.5, "cost_basis": 905, "current_price": 100, "price_source": "market",
+ "price_timestamp": "...", "previous_close": 98, "market_value": 1000, "daily_change": 2, "daily_change_pct": 2.04,
+ "daily_pnl": 20, "unrealised_pnl": 95, "unrealised_pnl_pct": 10.5, "stale": false}
 ```
 
-- **Open positions** fill the market fields. These are `null` when there is no stored price in the position's currency.
-- **Closed positions** fill `exit_price`, `exit_date`, `realised_pnl` and `realised_pnl_pct`.
+- **`symbol`** is the broker's symbol; **`ticker`** the market data ticker it maps to, or `null` (options, cash, unknown exchanges). Listed stocks, ETFs and funds map by exchange: `BRK.B` on NYSE is `BRK-B`, `VUSA` on the LSE is `VUSA.L`, `SHOP` on the TSX is `SHOP.TO`. Crypto maps to `BTC-USD` style tickers.
+- **`price_source`:** `market` when a cached market price in the position's currency exists (a quote in pence, `GBp`, is converted for a `GBP` position); otherwise `broker`, the broker's price at the last refresh, with `price_timestamp` = `data_as_of`. Daily change and daily P&L need a market price.
+- **`average_cost`** is SnapTrade's `cost_basis` (average purchase price per unit). `cost_basis` here is the total: quantity × average cost × multiplier. Options use their contract multiplier.
+- Short positions have a negative quantity; their P&L % is relative to the absolute cost.
 
 ### Totals (one per currency, never combined)
 
 ```json
-{"currency": "USD", "open_positions": 1, "closed_positions": 1, "market_value": 2627.6, "cost_basis": 2627.6,
- "unrealised_pnl": 0.0, "unrealised_pnl_pct": 0.0, "daily_pnl": 8.2, "realised_pnl": 500.0, "incomplete": false}
+{"currency": "USD", "positions": 2, "market_value": 1550, "cost_basis": 1305, "unrealised_pnl": 245,
+ "unrealised_pnl_pct": 18.77, "daily_pnl": 20, "incomplete": true}
 ```
 
-`incomplete` is `true` when some open positions have no current price or previous close. In that case the market totals cover only the positions that have prices, while `cost_basis` always covers all open positions.
+`incomplete` is `true` when some positions have no price, cost or daily change; those are left out of the affected totals. Positions without a currency are not totalled.
 
 ## Strategies
 

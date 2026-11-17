@@ -37,12 +37,12 @@ def test_backup_contains_state_and_excludes_market_data(
     assert info is not None
     manifest = json.loads((info.path / "manifest.json").read_text())
     assert set(manifest["files"]) == {
-        "positions/sample.parquet",
+        "strategies/sample.parquet",
         "portfolios/p.json",
         "metadata/schema_version.json",
     }
     assert manifest["reason"] == "manual" and manifest["schema_version"] == 1
-    assert (info.path / "positions/sample.parquet").read_bytes() == store.resolve(SAMPLE.path).read_bytes()
+    assert (info.path / "strategies/sample.parquet").read_bytes() == store.resolve(SAMPLE.path).read_bytes()
     assert not list(info.path.rglob("*.lock"))
     backups.verify_backup(info.name)
 

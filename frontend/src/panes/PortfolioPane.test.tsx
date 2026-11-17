@@ -7,7 +7,7 @@ import { renderPane } from '../test/renderPane'
 import { PortfolioPane } from './PortfolioPane'
 
 const watchlist = portfolio({ tickers: ['AAPL', 'VOD.L'], favourites: ['AAPL'] })
-const positionsList = portfolio({ id: 'pf-pos', name: 'Main Positions', type: 'positions', tickers: ['MSFT'] })
+const second = portfolio({ id: 'pf-two', name: 'Tech', tickers: ['MSFT'] })
 
 const rowTickers = () =>
   within(screen.getByRole('table'))
@@ -17,7 +17,7 @@ const rowTickers = () =>
 
 function setup(overrides: Record<string, unknown> = {}) {
   return mockApi({
-    'GET /portfolios': [watchlist, positionsList],
+    'GET /portfolios': [watchlist, second],
     'GET /portfolios/pf-main/quotes': {
       portfolio_id: 'pf-main',
       rows: [
@@ -25,7 +25,7 @@ function setup(overrides: Record<string, unknown> = {}) {
         quote('VOD.L', { price: 0.7123, currency: 'GBP', daily_change: 0.01, daily_change_pct: 1.42, stale: true, last_error: 'timeout' }),
       ],
     },
-    'GET /portfolios/pf-pos/quotes': { portfolio_id: 'pf-pos', rows: [quote('MSFT', { price: null, daily_change: null, daily_change_pct: null })] },
+    'GET /portfolios/pf-two/quotes': { portfolio_id: 'pf-two', rows: [quote('MSFT', { price: null, daily_change: null, daily_change_pct: null })] },
     ...overrides,
   })
 }
@@ -84,15 +84,14 @@ describe('PortfolioPane', () => {
     expect(await screen.findByText('Unknown ticker ZZZZ')).toBeInTheDocument()
   })
 
-  it('saves the chosen portfolio in the pane configuration; positions lists are read-only', async () => {
+  it('saves the chosen portfolio in the pane configuration', async () => {
     setup()
     const { lastConfig } = renderPane(PortfolioPane)
     await screen.findByText('190.50')
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Portfolio' }), 'pf-pos')
-    expect(lastConfig()).toEqual({ portfolioId: 'pf-pos' })
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Portfolio' }), 'pf-two')
+    expect(lastConfig()).toEqual({ portfolioId: 'pf-two' })
     expect(await screen.findByText('No price')).toBeInTheDocument()
-    expect(screen.getByText(/open positions in this list/)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Remove MSFT/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Remove MSFT/ })).toBeInTheDocument()
   })
 
   it('says so when the saved portfolio no longer exists', async () => {

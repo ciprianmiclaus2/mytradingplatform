@@ -18,14 +18,13 @@ export interface HealthResponse {
 
 // -- Portfolios -------------------------------------------------------------------
 
-export type PortfolioType = 'watchlist' | 'positions'
+export type PortfolioType = 'watchlist'
 
 export interface Portfolio {
   id: string
   name: string
   description: string
   type: PortfolioType
-  /** Watchlist: maintained by the user. Positions: tickers of open positions. */
   tickers: string[]
   favourites: string[]
   created_at: string
@@ -52,79 +51,110 @@ export interface PortfolioQuotes {
   rows: QuoteRow[]
 }
 
-// -- Positions --------------------------------------------------------------------
+// -- Broker accounts (SnapTrade) ---------------------------------------------------
 
-export type PositionStatus = 'OPEN' | 'CLOSED'
-
-export interface PositionView {
-  id: string
-  portfolio_id: string
-  ticker: string
-  currency: string
-  status: PositionStatus
-  quantity: number
-  entry_price: number
-  entry_date: string | null
-  notes: string
-  cost_basis: number
-  current_price: number | null
-  previous_close: number | null
-  price_timestamp: string | null
-  market_value: number | null
-  unrealised_pnl: number | null
-  unrealised_pnl_pct: number | null
-  daily_change: number | null
-  daily_change_pct: number | null
-  daily_pnl: number | null
-  stale: boolean
-  exit_price: number | null
-  exit_date: string | null
-  realised_pnl: number | null
-  realised_pnl_pct: number | null
-  created_at: string
-  updated_at: string
+/** What the UI may know about the stored SnapTrade credentials (never the secrets). */
+export interface SnapTradeStatus {
+  configured: boolean
+  /** Personal API key (no SnapTrade user); null when not set up. */
+  personal: boolean | null
+  client_id: string | null
+  user_id: string | null
+  /** Last 4 characters ('' for short values). */
+  consumer_key_hint: string | null
+  user_secret_hint: string | null
 }
 
-export interface CurrencyTotals {
-  currency: string
-  open_positions: number
-  closed_positions: number
+/** Personal API key: client ID and consumer key only (user fields blank). Commercial keys add the user. */
+export interface SnapTradeCredentials {
+  client_id: string
+  consumer_key: string
+  user_id: string
+  user_secret: string
+}
+
+export interface BrokerAccount {
+  id: string
+  name: string
+  /** Masked, e.g. ****8443 */
+  number: string
+  status: string | null
+  kind: string
+  net_value: number | null
+  net_value_currency: string | null
+  listed_at: string
+  /** Last successful positions refresh (by this app). */
+  positions_refreshed_at: string | null
+  /** When SnapTrade fetched the data from the broker. */
+  data_as_of: string | null
+}
+
+export interface BrokerAccountView extends BrokerAccount {
+  /** Market data tickers held at the last refresh. */
+  tickers: string[]
+}
+
+export interface BrokerAccounts {
+  configured: boolean
+  accounts: BrokerAccountView[]
+  accounts_refreshed_at: string | null
+}
+
+export type PriceSource = 'market' | 'broker'
+
+export interface BrokerPositionView {
+  symbol: string
+  ticker: string | null
+  description: string | null
+  kind: string
+  currency: string | null
+  quantity: number
+  average_cost: number | null
+  cost_basis: number | null
+  current_price: number | null
+  /** 'market': live quote; 'broker': the broker's price at the last refresh. */
+  price_source: PriceSource | null
+  price_timestamp: string | null
+  previous_close: number | null
   market_value: number | null
-  cost_basis: number
+  daily_change: number | null
+  /** Percent units. */
+  daily_change_pct: number | null
+  daily_pnl: number | null
+  unrealised_pnl: number | null
+  /** Percent units. */
+  unrealised_pnl_pct: number | null
+  stale: boolean
+}
+
+export interface BrokerCurrencyTotals {
+  currency: string
+  positions: number
+  market_value: number | null
+  cost_basis: number | null
   unrealised_pnl: number | null
   unrealised_pnl_pct: number | null
   daily_pnl: number | null
-  realised_pnl: number
+  /** Some positions lack a price, cost or daily change and are left out. */
   incomplete: boolean
 }
 
-export interface PositionsResponse {
-  portfolio_id: string
-  positions: PositionView[]
-  totals: CurrencyTotals[]
+export interface BrokerPositionsResponse {
+  account: BrokerAccount
+  positions: BrokerPositionView[]
+  totals: BrokerCurrencyTotals[]
 }
 
-/** Decimal values are sent as strings so they reach the backend exactly. */
-export interface PositionCreate {
-  ticker: string
-  quantity: string
-  entry_price?: string
-  entry_date?: string
-  notes?: string
+export interface AccountRefreshError {
+  account_id: string
+  account_name: string
+  message: string
 }
 
-export interface PositionUpdate {
-  quantity?: string
-  entry_price?: string
-  entry_date?: string
-  exit_price?: string
-  exit_date?: string
-  notes?: string
-}
-
-export interface PositionClose {
-  exit_price?: string
-  exit_date?: string
+export interface BrokerRefreshResult {
+  accounts: BrokerAccountView[]
+  errors: AccountRefreshError[]
+  accounts_refreshed_at: string
 }
 
 // -- Market data ------------------------------------------------------------------

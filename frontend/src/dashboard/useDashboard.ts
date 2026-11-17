@@ -12,6 +12,8 @@ export interface DashboardApi {
   saveOk: boolean
   dismissWarning: () => void
   addPane: (paneType: string) => void
+  /** Add several panes of one type with the given configurations, one tile each. */
+  addPanes: (paneType: string, configs: Record<string, unknown>[]) => void
   removePane: (id: string) => void
   layoutChange: (layouts: readonly PaneLayout[]) => void
   /** Minimise or restore a tile (group id). */
@@ -37,6 +39,10 @@ export function useDashboard(): DashboardApi {
   }, [state])
 
   const addPane = useCallback((paneType: string) => dispatch({ type: 'addPane', paneType }), [])
+  const addPanes = useCallback(
+    (paneType: string, configs: Record<string, unknown>[]) => dispatch({ type: 'addPanes', paneType, configs }),
+    [],
+  )
   const removePane = useCallback((id: string) => dispatch({ type: 'removePane', id }), [])
   const layoutChange = useCallback(
     (layouts: readonly PaneLayout[]) => dispatch({ type: 'layoutChange', layouts }),
@@ -59,11 +65,11 @@ export function useDashboard(): DashboardApi {
 
   return useMemo(
     () => ({
-      state, warning, saveOk, dismissWarning, addPane, removePane, layoutChange, toggleMinimise, updateConfig,
+      state, warning, saveOk, dismissWarning, addPane, addPanes, removePane, layoutChange, toggleMinimise, updateConfig,
       selectTab, moveToGroup, detachPane, reorderTab, resetLayout,
     }),
     [
-      state, warning, saveOk, dismissWarning, addPane, removePane, layoutChange, toggleMinimise, updateConfig,
+      state, warning, saveOk, dismissWarning, addPane, addPanes, removePane, layoutChange, toggleMinimise, updateConfig,
       selectTab, moveToGroup, detachPane, reorderTab, resetLayout,
     ],
   )

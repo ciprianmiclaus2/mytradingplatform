@@ -8,7 +8,7 @@ from fastapi import Depends, Request
 
 from app.market_data.service import MarketDataService
 from app.portfolio.service import PortfolioService
-from app.positions.service import PositionService
+from app.brokers.service import BrokerService
 from app.refresh.service import RefreshService
 from app.strategies.engine import StrategyEngine
 
@@ -27,11 +27,11 @@ def get_portfolio_service(request: Request) -> PortfolioService:
 Portfolios = Annotated[PortfolioService, Depends(get_portfolio_service)]
 
 
-def get_position_service(request: Request) -> PositionService:
-    return request.app.state.positions
+def get_broker_service(request: Request) -> BrokerService:
+    return request.app.state.brokers
 
 
-Positions = Annotated[PositionService, Depends(get_position_service)]
+Brokers = Annotated[BrokerService, Depends(get_broker_service)]
 
 
 def get_strategy_engine(request: Request) -> StrategyEngine:

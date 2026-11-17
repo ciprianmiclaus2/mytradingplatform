@@ -7,28 +7,40 @@ from datetime import UTC, datetime, timedelta
 from fastapi.testclient import TestClient
 
 from app.market_data.base import ProviderError
+from tests.fake_snaptrade import FakeSnapTrade, account, stock
 from tests.fakes import FIXED_NOW, FakeProvider
 
 
-def _ids(client: TestClient) -> tuple[str, str]:
-    by_type = {p["type"]: p["id"] for p in client.get("/api/portfolios").json()}
-    return by_type["watchlist"], by_type["positions"]
+def _watchlist(client: TestClient) -> str:
+    return client.get("/api/portfolios").json()[0]["id"]
+
+
+def _connect(client: TestClient, snaptrade: FakeSnapTrade, positions: list[dict]) -> str:
+    """Set up SnapTrade with one account holding ``positions``; returns the account id."""
+    snaptrade.accounts = [account("acc-1", "Brokerage")]
+    snaptrade.positions = {"acc-1": positions}
+    assert client.put("/api/brokers/snaptrade/settings", json=snaptrade.credentials()).status_code == 200
+    return "acc-1"
 
 
 def _requested(fake: FakeProvider) -> list[str]:
     return [t for call in fake.quote_calls for t in call]
 
 
-def test_refresh_collects_portfolio_and_extra_tickers_once(client: TestClient, fake_provider: FakeProvider) -> None:
-    for ticker, price in {"AAPL": 100.0, "MSFT": 200.0, "VOD.L": 1.2, "NVDA": 50.0, "OLD": 10.0}.items():
+def test_refresh_collects_portfolio_broker_and_extra_tickers_once(
+    client: TestClient, fake_provider: FakeProvider, fake_snaptrade: FakeSnapTrade
+) -> None:
+    for ticker, price in {"AAPL": 100.0, "MSFT": 200.0, "VOD.L": 1.2, "NVDA": 50.0}.items():
         fake_provider.set_quote(ticker, price, previous_close=price)
-    watchlist, positions = _ids(client)
+    watchlist = _watchlist(client)
     client.post(f"/api/portfolios/{watchlist}/tickers", json={"ticker": "AAPL"})
     client.post(f"/api/portfolios/{watchlist}/tickers", json={"ticker": "MSFT"})
-    client.post(f"/api/portfolios/{positions}/positions", json={"ticker": "AAPL", "quantity": 1})
-    client.post(f"/api/portfolios/{positions}/positions", json={"ticker": "VOD.L", "quantity": 1})
-    old = client.post(f"/api/portfolios/{positions}/positions", json={"ticker": "OLD", "quantity": 1}).json()
-    client.post(f"/api/positions/{old['id']}/close", json={})
+    # Broker positions: AAPL (also in the watchlist), VOD on the LSE, and an option (no market data ticker).
+    _connect(client, fake_snaptrade, [
+        stock("AAPL", "1", "100", "90"),
+        stock("VOD", "1", "1.2", "1", currency="GBP", exchange="XLON"),
+        stock("AAPL  261218C00240000", "1", "5", "4", kind="option", multiplier=100),
+    ])
     fake_provider.quote_calls.clear()
 
     resp = client.post("/api/market-data/refresh", json={"extra_tickers": ["nvda", "MSFT", "AAPL"]})
@@ -37,7 +49,7 @@ def test_refresh_collects_portfolio_and_extra_tickers_once(client: TestClient, f
     body = resp.json()
     assert body["status"] == "completed"
     assert (body["tickers_requested"], body["tickers_updated"], body["tickers_failed"]) == (4, 4, 0)
-    # One provider request per unique ticker; closed positions need no price.
+    # One provider request per unique ticker; the option is not priced through market data.
     requested = _requested(fake_provider)
     assert sorted(requested) == ["AAPL", "MSFT", "NVDA", "VOD.L"]
     assert len(requested) == len(set(requested))
@@ -45,7 +57,7 @@ def test_refresh_collects_portfolio_and_extra_tickers_once(client: TestClient, f
 
 def test_refresh_without_body_uses_portfolios_only(client: TestClient, fake_provider: FakeProvider) -> None:
     fake_provider.set_quote("AAPL", 100.0)
-    watchlist, _ = _ids(client)
+    watchlist = _watchlist(client)
     client.post(f"/api/portfolios/{watchlist}/tickers", json={"ticker": "AAPL"})
     fake_provider.quote_calls.clear()
 
@@ -67,12 +79,14 @@ def test_refresh_request_validation(client: TestClient) -> None:
     assert client.post("/api/market-data/refresh", json={"extra_tickers": too_many}).status_code == 422
 
 
-def test_partial_failure_keeps_last_price_and_updates_valuation(client: TestClient, fake_provider: FakeProvider) -> None:
+def test_partial_failure_keeps_last_price_and_updates_valuation(
+    client: TestClient, fake_provider: FakeProvider, fake_snaptrade: FakeSnapTrade
+) -> None:
     fake_provider.set_quote("AAPL", 100.0, previous_close=95.0)
     fake_provider.set_quote("MSFT", 200.0, previous_close=190.0)
-    watchlist, positions = _ids(client)
+    watchlist = _watchlist(client)
     client.post(f"/api/portfolios/{watchlist}/tickers", json={"ticker": "MSFT"})
-    client.post(f"/api/portfolios/{positions}/positions", json={"ticker": "AAPL", "quantity": 10, "entry_price": "90"})
+    account_id = _connect(client, fake_snaptrade, [stock("AAPL", "10", "99", "90")])
 
     # Next refresh: AAPL moves (a later quote), MSFT fails.
     later = FIXED_NOW + timedelta(minutes=5)
@@ -83,9 +97,9 @@ def test_partial_failure_keeps_last_price_and_updates_valuation(client: TestClie
     assert (body["tickers_updated"], body["tickers_failed"]) == (1, 1)
     assert body["errors"][0]["ticker"] == "MSFT"
 
-    # Position valuation uses the new price.
-    [position] = client.get(f"/api/portfolios/{positions}/positions").json()["positions"]
-    assert position["current_price"] == 110.0
+    # Broker position valuation uses the new market price (not the broker's price at its refresh).
+    [position] = client.get(f"/api/brokers/accounts/{account_id}/positions").json()["positions"]
+    assert position["current_price"] == 110.0 and position["price_source"] == "market"
     assert position["market_value"] == 1100.0 and position["unrealised_pnl"] == 200.0 and position["daily_pnl"] == 100.0
 
     # MSFT keeps its last valid price, marked stale.

@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
-from app.api import health, market_data, portfolios, positions, strategies
+from app.api import brokers, health, market_data, portfolios, strategies
 from app.config import Settings, get_settings
 from app.datasets import load_dataset_modules
 from app.market_data.base import BaseMarketDataProvider
@@ -20,8 +20,10 @@ from app.logging_config import configure_logging
 from app.persistence import open_persistence
 from app.portfolio.repository import PortfolioRepository
 from app.portfolio.service import PortfolioService
-from app.positions.repository import PositionRepository
-from app.positions.service import PositionService
+from app.brokers.credentials import CredentialStore
+from app.brokers.repository import BrokerRepository
+from app.brokers.service import BrokerService, ClientFactory
+from app.brokers.snaptrade import SnapTradeClient
 from app.refresh.service import RefreshService
 from app.strategies.engine import StrategyEngine
 from app.strategies.registry import StrategyRegistry, discover_strategies, strategy_registry
@@ -38,8 +40,9 @@ def create_app(
     *,
     provider: BaseMarketDataProvider | None = None,
     registry: StrategyRegistry | None = None,
+    snaptrade: ClientFactory | None = None,
 ) -> FastAPI:
-    """Build the app. ``provider`` and ``registry`` (strategies) override the defaults (tests)."""
+    """Build the app. ``provider``, ``registry`` (strategies) and ``snaptrade`` (client factory) override the defaults (tests)."""
     settings = settings or get_settings()
 
     @asynccontextmanager
@@ -62,14 +65,16 @@ def create_app(
         app.state.portfolios = PortfolioService(
             PortfolioRepository(persistence.store), app.state.market_data, persistence.backups
         )
-        app.state.positions = PositionService(
-            PositionRepository(persistence.store),
-            app.state.portfolios,
-            app.state.market_data,
-            persistence.backups,
-        )
+        app.state.portfolios.remove_legacy_positions_lists()
         app.state.portfolios.ensure_defaults()
-        app.state.refresh = RefreshService(app.state.portfolios, app.state.market_data)
+        app.state.brokers = BrokerService(
+            BrokerRepository(persistence.store),
+            CredentialStore(settings.data_dir),
+            app.state.market_data,
+            snaptrade or (lambda creds: SnapTradeClient(
+                creds, base_url=settings.snaptrade_base_url, timeout=settings.snaptrade_timeout)),
+        )
+        app.state.refresh = RefreshService(app.state.portfolios, app.state.market_data, app.state.brokers.all_tickers)
         if registry is None:
             discover_strategies()
         app.state.strategies = StrategyEngine(
@@ -109,7 +114,7 @@ def create_app(
     app.include_router(health.router, prefix=API_PREFIX)
     app.include_router(market_data.router, prefix=API_PREFIX)
     app.include_router(portfolios.router, prefix=API_PREFIX)
-    app.include_router(positions.router, prefix=API_PREFIX)
+    app.include_router(brokers.router, prefix=API_PREFIX)
     app.include_router(strategies.router, prefix=API_PREFIX)
     return app
 
